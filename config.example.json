@@ -12,5 +12,11 @@
     "Credenciais": {
         "AccessKey": "SUA_ACCESS_KEY_AQUI",
         "SecretKeyEncrypted": "CHAVE_CRIPTOGRAFADA_AQUI"
-    }
+    },
+
+
+    "_Module": "Comando para rodar 1ª e única vez.: Install-Module -Name PSSQLite -Force",
+    "_Module": "Comando para rodar 1ª e única vez.: Install-Module -Name AWS.Tools.S3 -Force",
+    "_Nota": "Comando para gerar senha do Winrar..: '{'+[guid]::NewGuid().ToString().ToUpper()+'}' | Set-Clipboard",
+    "_ModelPass": "Modelo de senha que será gerada: {00000000-0000-0000-0000-000000000000}"
 }
