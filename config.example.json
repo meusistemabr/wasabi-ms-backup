@@ -1,0 +1,16 @@
+{
+    "Cliente": "NomeDoCliente",
+    "WasabiBucket": "cliente-backup-bucket",
+    "WasabiRegion": "us-east-1",
+    "CaminhosOrigem": [
+        "C:\\Caminho\\Exemplo1",
+        "D:\\Caminho\\Exemplo2"
+    ],
+    "CaminhoDestinoTemp": "E:\\TempBackup",
+    "WinRarPath": "C:\\Program Files\\WinRAR\\Rar.exe",
+    "SenhaRarEncrypted": "COLE_AQUI_A_SENHA_DO_WINRAR_GERADA_PELO_DPAPI",
+    "Credenciais": {
+        "AccessKey": "SUA_ACCESS_KEY_AQUI",
+        "SecretKeyEncrypted": "CHAVE_CRIPTOGRAFADA_AQUI"
+    }
+}

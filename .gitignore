@@ -1,0 +1,11 @@
+# Ignorar configurações locais reais (SEGURANÇA)
+config.json
+
+# Ignorar o banco de dados forense
+*.db
+*.sqlite
+
+# Ignorar logs e arquivos temporários de backup
+*.log
+*.rar
+TempBackup/
