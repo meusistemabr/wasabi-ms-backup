@@ -13,6 +13,14 @@
         "AccessKey": "SUA_ACCESS_KEY_AQUI",
         "SecretKeyEncrypted": "CHAVE_CRIPTOGRAFADA_AQUI"
     },
+    "IncluiBackupMariaDBMysql": true,
+    "DataInfoBKPMariaDBMysql": {
+        "Host": "127.0.0.1",
+        "User": "root",
+        "Port": 3306,
+        "SecretPassEncrypted": "SENHA_ROOT_ENCRIPTADA_PELO_SEU_SCRIPT_DPAPI",
+        "BinPath": "C:\\Program Files\\MariaDB 10.6\\bin"
+    },
 
 
     "_Module": "Comando para rodar 1ª e única vez.: Install-Module -Name PSSQLite -Force",
