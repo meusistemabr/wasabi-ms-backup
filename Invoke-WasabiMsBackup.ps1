@@ -1,7 +1,3 @@
-# ==============================================================================
-# Script: Invoke-WasabiBackup.ps1
-# Leitura de Configuração e Motor de Compressão (WinRAR)
-# ==============================================================================
 $ErrorActionPreference = "Stop"
 
 Write-Host "=== Iniciando Rotina de Backup Wasabi MS ===" -ForegroundColor Cyan
@@ -20,9 +16,6 @@ if (-not (Test-Path $Config.CaminhoDestinoTemp)) {
     New-Item -ItemType Directory -Path $Config.CaminhoDestinoTemp -Force | Out-Null
 }
 
-# ==============================================================================
-# Passo 1.5: Validação e Dump de Bancos de Dados (MariaDB/MySQL)
-# ==============================================================================
 
 if ($Config.IncluiBackupMariaDBMysql -eq $true) {
     Write-Host "`n=== Iniciando Rotina de Backup de Banco de Dados ===" -ForegroundColor Cyan
@@ -65,8 +58,6 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
         Write-Host "Nenhum banco de dados de usuário encontrado para backup." -ForegroundColor Yellow
     } else {
         Write-Host "Encontrados $($BancosParaBackup.Count) bancos de dados para dump." -ForegroundColor Green
-
-        # Criar pasta temporária isolada para os dumps individuais
         $PastaBancosTemp = Join-Path $Config.CaminhoDestinoTemp "BancosDB_$DataHora"
         New-Item -ItemType Directory -Path $PastaBancosTemp -Force | Out-Null
 
@@ -78,28 +69,23 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
             $CaminhoRarInd = Join-Path $PastaBancosTemp "$($Banco)_$DataHoraMili.rar"
 
             Write-Host " -> Realizando dump de: $Banco ..." -ForegroundColor Cyan
-            
-            # O parâmetro --single-transaction faz o Hot Backup sem parar o servidor!
+           
             $ComandoDump = "& `"$MysqldumpExe`" -h $($DbConfig.Host) -P $($DbConfig.Port) -u $($DbConfig.User) --single-transaction --routines --triggers $Banco > `"$CaminhoSql`""
             Invoke-Expression $ComandoDump
 
             if (Test-Path $CaminhoSql) {
                 Write-Host "    Compactando $Banco individualmente..." -ForegroundColor DarkGray
-                
-                # Compactar o SQL individual (usando o WinRAR que já configuramos antes)
+               
                 $ArgsRarInd = @("a", "-m5", "-ep", "-y", "-hp$SenhaRarTexto", "`"$CaminhoRarInd`"", "`"$CaminhoSql`"")
                 $ProcessoRarInd = Start-Process -FilePath $Config.WinRarPath -ArgumentList $ArgsRarInd -Wait -NoNewWindow -PassThru
                 
                 if ($ProcessoRarInd.ExitCode -eq 0) {
-                    # Calcular Checksum Individual
                     $StreamInd = [System.IO.File]::OpenRead($CaminhoRarInd)
                     $SHA256Ind = [System.Security.Cryptography.SHA256]::Create()
                     $HashInd = [System.BitConverter]::ToString($SHA256Ind.ComputeHash($StreamInd)).Replace("-", "").ToLower()
                     $StreamInd.Dispose(); $SHA256Ind.Dispose()
                     
                     Write-Host "    [OK] ARQUIVO RAR gerado. Checksum SHA256: $HashInd" -ForegroundColor Green
-                    
-                    # Exclui o arquivo .sql solto por segurança
                     Remove-Item -Path $CaminhoSql -Force
                 } else {
                     Write-Host "    [ERRO] Falha ao compactar o banco $Banco" -ForegroundColor Red
@@ -107,7 +93,6 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
             }
         }
         Start-Sleep -Seconds 1
-
         $NomeMasterDB = "MasterBackupDB_$($Config.Cliente)_$DataHora.rar"
         $CaminhoMasterDB = Join-Path $Config.CaminhoDestinoTemp $NomeMasterDB
         Write-Host "`n[OK] Unindo todos os bancos de dados em um arquivo Master: $NomeMasterDB" -ForegroundColor Yellow
@@ -118,7 +103,6 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
         if ($ProcessoMaster.ExitCode -eq 0) {
             Write-Host "[OK] Pacote Master de Bancos de Dados gerado com sucesso!" -ForegroundColor Green
             Remove-Item -Path $PastaBancosTemp -Recurse -Force
-            
             Start-Sleep -Seconds 2
 
             Write-Host "`n=== Iniciando Envio do Banco de Dados [MYSQL/MARIADB] para Wasabi ===" -ForegroundColor Cyan
@@ -212,12 +196,9 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
 
             Invoke-SqliteQuery -DataSource $DbPath -Query $QueryAuditDB -SqlParameters $SqlParamsDB | Out-Null
             Write-Host "[OK] Auditoria do MasterDB salva no SQLite com sucesso!" -ForegroundColor Green
-            
             Remove-Item -Path $CaminhoMasterDB -Force -ErrorAction SilentlyContinue
         }
     }
-
-    # Destruir dados confidenciais da memória
     $env:MYSQL_PWD = $null
     if ($BSTRDb) { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTRDb) }
     Start-Sleep -Seconds 1
@@ -229,7 +210,7 @@ try {
     $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureSenha)
     $SenhaRarTexto = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
 } catch {
-    throw "Falha ao descriptografar a senha do WinRAR. O script foi rodado com o usuário correto?"
+    throw "Falha ao descriptografar a senha do WinRAR. O script foi rodado com o usu�rio correto?"
 } finally {
     if ($BSTR) { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTR) }
 }
@@ -237,21 +218,8 @@ try {
 $DataHora = Get-Date -Format "yyyyMMdd_HHmmss"
 $NomeArquivoRar = "Backup_$($Config.Cliente)_$DataHora.rar"
 $CaminhoCompletoRar = Join-Path $Config.CaminhoDestinoTemp $NomeArquivoRar
-
-# Isso é mais seguro do que passar dezenas de caminhos na linha de comando
 $ListFilePath = Join-Path $Config.CaminhoDestinoTemp "bkp_lista_$DataHora.txt"
 $Config.CaminhosOrigem | Out-File -FilePath $ListFilePath -Encoding UTF8
-
-# 5. Montar os Parâmetros do WinRAR
-<# Explicação dos parâmetros:
-   a       : Adicionar ao arquivo
-   -m5     : Compressão máxima
-   -md128m : Dicionário de 128MB (Conforme solicitado)
-   -rr5p   : Adicionar 5% de Registro de Recuperação (Recovery Record)
-   -hp     : Criptografar dados E o cabeçalho (nomes dos arquivos ficam ocultos)
-   -ep3    : Salvar caminhos completos (incluindo letra da unidade, ex: C:\...)
-   -y      : Responder "Sim" para todas as perguntas automaticamente
-#>
 $RarArgs = @(
     "a", 
     "-m5", 
@@ -264,7 +232,6 @@ $RarArgs = @(
     "@`"$ListFilePath`""
 )
 
-# 6. Executar o WinRAR
 Write-Host "[*] Iniciando compressao com WinRAR (Dicionario: 128MB, Recovery: 5%)..." -ForegroundColor Yellow
 $TempoInicio = Get-Date
 
@@ -273,12 +240,9 @@ $Process = Start-Process -FilePath $Config.WinRarPath -ArgumentList $RarArgs -Wa
 $TempoFim = Get-Date
 $Duracao = $TempoFim - $TempoInicio
 
-# Limpar o arquivo de lista temporário
 Remove-Item -Path $ListFilePath -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 1
 
-# 7. Avaliar o resultado do WinRAR
-# Códigos de Saída do WinRAR: 0 = Sucesso, 1 = Aviso (ex: arquivo em uso ignorado), 2+ = Erro Fatal
 if ($Process.ExitCode -eq 0) {
     Write-Host "[OK] Compressao concluida com SUCESSO!" -ForegroundColor Green
     Write-Host "[OK] Arquivo gerado: $CaminhoCompletoRar" -ForegroundColor Green
@@ -293,26 +257,14 @@ if ($Process.ExitCode -eq 0) {
 Start-Sleep -Seconds 1
 $SenhaRarTexto = $null
 
-
-
-
-# ==============================================================================
-# Passo 3: Validação de Integridade (Checksum)
-# ==============================================================================
-
 Write-Host "[OK] Calculando Checksum (SHA256) do arquivo gerado..." -ForegroundColor Yellow
 
 try {
     $Stream = [System.IO.File]::OpenRead($CaminhoCompletoRar)
     $SHA256 = [System.Security.Cryptography.SHA256]::Create()
     $HashBytes = $SHA256.ComputeHash($Stream)
-    
-    # Geramos o Hexadecimal para o nosso log local ser legível
     $ChecksumHex = [System.BitConverter]::ToString($HashBytes).Replace("-", "").ToLower()
-    
-    # Geramos o Base64 pois é a exigência nativa da API S3/Wasabi para o painel
     $ChecksumBase64 = [System.Convert]::ToBase64String($HashBytes)
-    
     Write-Host "Checksum (Hex): $ChecksumHex" -ForegroundColor Green
     Start-Sleep -Seconds 1
     
@@ -322,12 +274,6 @@ try {
     if ($Stream) { $Stream.Dispose() }
     if ($SHA256) { $SHA256.Dispose() }
 }
-
-
-
-# ==============================================================================
-# Passo 4: Upload Seguro para a Wasabi (S3)
-# ==============================================================================
 
 Write-Host "Preparando upload para Wasabi S3..." -ForegroundColor Cyan
 
@@ -351,7 +297,6 @@ Start-Sleep -Seconds 1
 $GuidVersao = "{" + [guid]::NewGuid().ToString().ToUpper() + "}"
 Write-Host "Version ID Gerado: $GuidVersao" -ForegroundColor Magenta
 
-# 2. Embutindo nossos dados personalizados nos metadados
 $MetadadosS3 = @{
     "cliente" = $Config.Cliente
     "guid-versao" = $GuidVersao
@@ -386,26 +331,9 @@ try {
     $SecretKeyWasabiTexto = $null
 }
 
-
-
-
-
-# ==============================================================================
-# Passo 5: Banco de Dados de Auditoria e Investigação (SQLite 3)
-# ==============================================================================
-
 Write-Host "[*] Registrando metadados e log de auditoria no Banco de Dados..." -ForegroundColor Cyan
-
-# 1. Caminho do Banco de Dados
 $DbPath = Join-Path (Get-Location).Path "dataBackup.db"
 
-# 2. Configurações de Alta Performance (Pragmas)
-<#
-   journal_mode = WAL: (Write-Ahead Logging) Muito mais rápido e seguro para concorrência.
-   synchronous = NORMAL: Velocidade máxima sem corromper o WAL.
-   temp_store = MEMORY: Joga índices e tabelas temporárias na RAM, poupando o disco.
-   automatic_index = ON: Cria índices dinâmicos para queries não otimizadas.
-#>
 $Pragmas = @"
 PRAGMA journal_mode = WAL;
 PRAGMA synchronous = NORMAL;
@@ -415,7 +343,6 @@ PRAGMA user_version = 1;
 "@
 Invoke-SqliteQuery -DataSource $DbPath -Query $Pragmas | Out-Null
 
-# 3. Construção do Schema das Tabelas
 $Schema = @"
 CREATE TABLE IF NOT EXISTS METADATA_APP (
     uuid TEXT PRIMARY KEY,
@@ -496,14 +423,8 @@ $SqlParams = @{
 
 Start-Sleep -Seconds 1
 Invoke-SqliteQuery -DataSource $DbPath -Query $QueryInsertAudit -SqlParameters $SqlParams | Out-Null
-
 Write-Host "[OK] Log de auditoria gravado no banco de dados local com SUCESSO!`n" -ForegroundColor Green
 Start-Sleep -Seconds 1
-
-
-# ==============================================================================
-# Passo 6: Limpeza Local e Encerramento
-# ==============================================================================
 
 if (Test-Path $CaminhoCompletoRar) {
     Remove-Item -Path $CaminhoCompletoRar -Force
