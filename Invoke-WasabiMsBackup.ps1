@@ -1,8 +1,9 @@
 $ErrorActionPreference = "Stop"
+$ProgressPreference = 'SilentlyContinue'
 
-Write-Host "=== Iniciando Rotina de Backup Wasabi MS ===" -ForegroundColor Cyan
+Write-Host "=== SCRIPT BACKUP AUTOMÁTICO WASABI MS (PROIBIDA REPRODUÇÃO) ===" -ForegroundColor Cyan
 Start-Sleep -Seconds 1
-Write-Host "[OK] Preparando variaveis, descriptografando dados..." -ForegroundColor Cyan
+Write-Host "[OK] Preparando variáveis, descriptografando dados..." -ForegroundColor Cyan
 Start-Sleep -Seconds 2
 
 $ConfigFile = ".\config.json"
@@ -17,14 +18,37 @@ if (-not (Test-Path $Config.CaminhoDestinoTemp)) {
 }
 
 
+$SenhaRarTexto = ""
+$SenhaFallbackAtivada = $false
+
+
+try {
+    if ($Config.SenhaRarEncrypted) {
+        $SecureSenha = ConvertTo-SecureString $Config.SenhaRarEncrypted -ErrorAction Stop
+        $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureSenha)
+        $SenhaRarTexto = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
+    }
+} catch {
+    Write-Host "[AVISO] Falha ao descriptografar senha do WinRAR do JSON.`nImpossível o script continuar a execução, verifique o blob da senha e tente novamente..." -ForegroundColor DarkYellow
+} finally {
+    if ($BSTR) { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTR) }
+}
+if ([string]::IsNullOrWhiteSpace($SenhaRarTexto)) {
+    $SenhaRarTexto = "{" + [guid]::NewGuid().ToString().ToUpper() + "}"
+    $SenhaFallbackAtivada = $true
+    Write-Host "[AVISO] Utilizando SENHA PADRÃO DE FALLBACK para o WinRAR." -ForegroundColor DarkYellow
+
+    $CaminhoArquivo = Join-Path $PSScriptRoot "senha_winrar_gerada_automaticamente.txt"
+    $SenhaRarTexto | Out-File -FilePath $CaminhoArquivo -Encoding utf8
+}
+
+
 if ($Config.IncluiBackupMariaDBMysql -eq $true) {
-    Write-Host "`n=== Iniciando Rotina de Backup de Banco de Dados ===" -ForegroundColor Cyan
+    Write-Host "`n=== INICIANDO BACKUP DO BANCO DE DADOS.... ===" -ForegroundColor Cyan
     
     $DbConfig = $Config.DataInfoBKPMariaDBMysql
     $MysqlExe = Join-Path $DbConfig.BinPath "mysql.exe"
     $MysqldumpExe = Join-Path $DbConfig.BinPath "mysqldump.exe"
-
-    # Verificar se os executÃ¡veis existem
     if (-not (Test-Path $MysqlExe) -or -not (Test-Path $MysqldumpExe)) {
         throw "[ERROR] Executaveis do MySQL/MariaDB nao encontrados no caminho: $($DbConfig.BinPath)"
     }
@@ -46,8 +70,8 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
     $ListaBancos = Invoke-Expression $ComandoListaDBs 2>&1
 
     if ($LASTEXITCODE -ne 0) {
-        $env:MYSQL_PWD = $null # Limpa senha
-        throw "[ERROR] Erro CrÃ­tico: Falha ao conectar no BD. Verifique se estÃ¡ online e se as credenciais tÃªm permissÃ£o. Detalhes: $ListaBancos"
+        $env:MYSQL_PWD = $null
+        throw "[ERROR] Erro Crítico: Falha ao conectar no BD. Verifique se está online e se as credenciais tem permissão. Detalhes: $ListaBancos"
     }
 
     $BancosSistema = @("information_schema", "mysql", "performance_schema", "sys")
@@ -55,7 +79,7 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
     Start-Sleep -Seconds 1
 
     if ($BancosParaBackup.Count -eq 0) {
-        Write-Host "Nenhum banco de dados de usuÃ¡rio encontrado para backup." -ForegroundColor Yellow
+        Write-Host "Nenhum banco de dados de usuário encontrado para backup." -ForegroundColor Yellow
     } else {
         Write-Host "Encontrados $($BancosParaBackup.Count) bancos de dados para dump." -ForegroundColor Green
         $PastaBancosTemp = Join-Path $Config.CaminhoDestinoTemp "BancosDB_$DataHora"
@@ -68,13 +92,15 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
             $CaminhoSql = Join-Path $PastaBancosTemp $NomeDumpSql
             $CaminhoRarInd = Join-Path $PastaBancosTemp "$($Banco)_$DataHoraMili.rar"
 
-            Write-Host " -> Realizando dump de: $Banco ..." -ForegroundColor Cyan
+            Write-Host "[*] Realizando dump de: $Banco ..." -ForegroundColor Cyan
            
-            $ComandoDump = "& `"$MysqldumpExe`" -h $($DbConfig.Host) -P $($DbConfig.Port) -u $($DbConfig.User) --single-transaction --routines --triggers $Banco > `"$CaminhoSql`""
+            $ComandoDump = "cmd.exe /c `"`"$MysqldumpExe`" -h $($DbConfig.Host) -P $($DbConfig.Port) -u $($DbConfig.User) --single-transaction --routines --triggers $Banco > `"$CaminhoSql`" 2>nul`""
             Invoke-Expression $ComandoDump
 
+            Start-Sleep -Seconds 1
+
             if (Test-Path $CaminhoSql) {
-                Write-Host "    Compactando $Banco individualmente..." -ForegroundColor DarkGray
+                Write-Host "[**] Compactando $Banco individualmente..." -ForegroundColor DarkGray
                
                 $ArgsRarInd = @("a", "-m5", "-ep", "-y", "-hp$SenhaRarTexto", "`"$CaminhoRarInd`"", "`"$CaminhoSql`"")
                 $ProcessoRarInd = Start-Process -FilePath $Config.WinRarPath -ArgumentList $ArgsRarInd -Wait -NoNewWindow -PassThru
@@ -85,7 +111,7 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
                     $HashInd = [System.BitConverter]::ToString($SHA256Ind.ComputeHash($StreamInd)).Replace("-", "").ToLower()
                     $StreamInd.Dispose(); $SHA256Ind.Dispose()
                     
-                    Write-Host "    [OK] ARQUIVO RAR gerado. Checksum SHA256: $HashInd" -ForegroundColor Green
+                    Write-Host "[OK] ARQUIVO RAR gerado. Checksum SHA256: $HashInd" -ForegroundColor Green
                     Remove-Item -Path $CaminhoSql -Force
                 } else {
                     Write-Host "    [ERRO] Falha ao compactar o banco $Banco" -ForegroundColor Red
@@ -102,6 +128,7 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
 
         if ($ProcessoMaster.ExitCode -eq 0) {
             Write-Host "[OK] Pacote Master de Bancos de Dados gerado com sucesso!" -ForegroundColor Green
+            Write-Host "`nLim" -ForegroundColor Cyan
             Remove-Item -Path $PastaBancosTemp -Recurse -Force
             Start-Sleep -Seconds 2
 
@@ -127,8 +154,13 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
                 $BSTRWasabi = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureWasabi)
                 $SecretKeyWasabi = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTRWasabi)
                 
-                Write-Host "[OK] Realizando upload do MasterDB..." -ForegroundColor Yellow
+                Write-Host "[*] Iniciando transferência..." -ForegroundColor Yellow
                 $TempoIniUploadDB = Get-Date
+
+                Start-Sleep -Seconds 2
+
+                Write-Host "[*] Transferência em andamento... AGUARDE..." -ForegroundColor Yellow
+                Start-Sleep -Seconds 1
 
                 Write-S3Object -BucketName $Config.WasabiBucket `
                                -Key $NomeMasterDB `
@@ -139,10 +171,12 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
                                -Region $Config.WasabiRegion `
                                -Metadata $MetadadosS3DB `
                                -ChecksumAlgorithm SHA256 `
+                               -StorageClass STANDARD `
+                               -ContentType application/vnd.rar `
                                -ErrorAction Stop
 
                 $TempoFimUploadDB = Get-Date
-                Write-Host "[OK] Upload do MasterDB concluÃ­do em $(($TempoFimUploadDB - $TempoIniUploadDB).TotalSeconds) segundos!" -ForegroundColor Green
+                Write-Host "[OK] Upload do BACKUP DO BANCO DE DADOS DO CLIENTE concluído em $(($TempoFimUploadDB - $TempoIniUploadDB).TotalSeconds) segundos!" -ForegroundColor Green
             } catch {
                 throw "[ERROR] Erro ao fazer upload do Banco de Dados: $_"
             } finally {
@@ -151,7 +185,7 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
 
             Start-Sleep -Seconds 1
 
-            Write-Host "[OK] Registrando auditoria do Banco de Dados no SQLite..." -ForegroundColor Yellow
+            Write-Host "[OK] Registrando auditoria do Banco de Dados..." -ForegroundColor Yellow
             $DbPath = Join-Path (Get-Location).Path "dataBackup.db"
             $AppUuid = "{AB36F605-6A60-4BBE-84A6-F66F2E0F4FFD}"
             
@@ -195,24 +229,13 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
             }
 
             Invoke-SqliteQuery -DataSource $DbPath -Query $QueryAuditDB -SqlParameters $SqlParamsDB | Out-Null
-            Write-Host "[OK] Auditoria do MasterDB salva no SQLite com sucesso!" -ForegroundColor Green
+            Write-Host "[OK] Auditoria do sistema de Backup salva com sucesso!" -ForegroundColor Green
             Remove-Item -Path $CaminhoMasterDB -Force -ErrorAction SilentlyContinue
         }
     }
     $env:MYSQL_PWD = $null
     if ($BSTRDb) { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTRDb) }
     Start-Sleep -Seconds 1
-}
-
-
-try {
-    $SecureSenha = ConvertTo-SecureString $Config.SenhaRarEncrypted
-    $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureSenha)
-    $SenhaRarTexto = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
-} catch {
-    throw "Falha ao descriptografar a senha do WinRAR. O script foi rodado com o usuário correto?"
-} finally {
-    if ($BSTR) { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTR) }
 }
 
 $DataHora = Get-Date -Format "yyyyMMdd_HHmmss"
@@ -232,7 +255,8 @@ $RarArgs = @(
     "@`"$ListFilePath`""
 )
 
-Write-Host "[*] Iniciando compressao com WinRAR (Dicionario: 128MB, Recovery: 5%)..." -ForegroundColor Yellow
+Write-Host "[*] Iniciando compressão com WinRAR de alta performance...`nAGUARDE A CONCLUSÃO COMPLETA...." -ForegroundColor Yellow
+Start-Sleep -Seconds 1
 $TempoInicio = Get-Date
 
 $Process = Start-Process -FilePath $Config.WinRarPath -ArgumentList $RarArgs -Wait -NoNewWindow -PassThru
@@ -244,16 +268,17 @@ Remove-Item -Path $ListFilePath -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 1
 
 if ($Process.ExitCode -eq 0) {
-    Write-Host "[OK] Compressao concluida com SUCESSO!" -ForegroundColor Green
+    Write-Host "[OK] Compressao concluída com SUCESSO!" -ForegroundColor Green
     Write-Host "[OK] Arquivo gerado: $CaminhoCompletoRar" -ForegroundColor Green
-    Write-Host "[OK] Tempo de compressÃ£o: $($Duracao.Hours)h $($Duracao.Minutes)m $($Duracao.Seconds)s`n" -ForegroundColor Green
+    Write-Host "[OK] Tempo de compressão: $($Duracao.Hours)h $($Duracao.Minutes)m $($Duracao.Seconds)s`n" -ForegroundColor Green
 } elseif ($Process.ExitCode -eq 1) {
-    Write-Host "CompressÃ£o concluÃ­da com AVISOS (Alguns arquivos podem estar em uso e foram pulados)." -ForegroundColor DarkYellow
-    Write-Host "Arquivo gerado: $CaminhoCompletoRar`n" -ForegroundColor DarkYellow
+    Write-Host "[OK] Compressão concluída com AVISOS (Alguns arquivos podem estar em uso e foram pulados)." -ForegroundColor DarkYellow
+    Write-Host "[OK] Arquivo gerado: $CaminhoCompletoRar`n" -ForegroundColor DarkYellow
 } else {
-    throw "ERRO FATAL na compressÃ£o. CÃ³digo de saÃ­da do WinRAR: $($Process.ExitCode)"
+    throw "[ERROR] ERRO FATAL na compressão. Código de saída do WinRAR: $($Process.ExitCode)"
 }
-
+Start-Sleep -Seconds 1
+Write-Host "[OK] Processo de compactação finalizado com sucesso... Aguarde..." -ForegroundColor Green
 Start-Sleep -Seconds 1
 $SenhaRarTexto = $null
 
@@ -275,10 +300,10 @@ try {
     if ($SHA256) { $SHA256.Dispose() }
 }
 
-Write-Host "Preparando upload para Wasabi S3..." -ForegroundColor Cyan
+Write-Host "[OK] Preparando upload para servidor remoto S3" -ForegroundColor Cyan
 
 if (-not (Get-Module -ListAvailable -Name AWS.Tools.S3)) {
-    throw "MÃ³dulo AWS.Tools.S3 nÃ£o encontrado. Instale com: Install-Module -Name AWS.Tools.S3 -Force"
+    throw "[ERROR] Módulo AWS.Tools.S3 não encontrado. Instale com: Install-Module -Name AWS.Tools.S3 -Force"
 }
 
 try {
@@ -286,7 +311,7 @@ try {
     $BSTRWasabi = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureWasabiKey)
     $SecretKeyWasabiTexto = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTRWasabi)
 } catch {
-    throw "Falha ao descriptografar a Secret Key da Wasabi."
+    throw "[ERROR] Falha ao descriptografar a Secret Key."
 } finally {
     if ($BSTRWasabi) { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTRWasabi) }
 }
@@ -295,17 +320,20 @@ $WasabiEndpoint = "https://s3.$($Config.WasabiRegion).wasabisys.com"
 Start-Sleep -Seconds 1
 
 $GuidVersao = "{" + [guid]::NewGuid().ToString().ToUpper() + "}"
-Write-Host "Version ID Gerado: $GuidVersao" -ForegroundColor Magenta
+Write-Host "[OK] Version ID Gerado: $GuidVersao" -ForegroundColor Magenta
 
 $MetadadosS3 = @{
     "cliente" = $Config.Cliente
     "guid-versao" = $GuidVersao
 }
 
-Write-Host "[*] Iniciando transferencia..." -ForegroundColor Yellow
+Write-Host "[*] Iniciando transferência..." -ForegroundColor Yellow
 $TempoInicioUpload = Get-Date
+Start-Sleep -Seconds 1
 
 try {
+    Write-Host "[*] Transferência em andamento... AGUARDE..." -ForegroundColor Yellow
+    Start-Sleep -Seconds 1
     Write-S3Object -BucketName $Config.WasabiBucket `
                    -Key $NomeArquivoRar `
                    -File $CaminhoCompletoRar `
@@ -315,18 +343,20 @@ try {
                    -Region $Config.WasabiRegion `
                    -Metadata $MetadadosS3 `
                    -ChecksumAlgorithm SHA256 `
+                   -StorageClass STANDARD `
+                   -ContentType application/vnd.rar `
                    -ErrorAction Stop
 
     $TempoFimUpload = Get-Date
     $DuracaoUpload = $TempoFimUpload - $TempoInicioUpload
     Start-Sleep -Seconds 1
 
-    Write-Host "[OK] Upload concluido com SUCESSO!" -ForegroundColor Green
+    Write-Host "[OK] Upload concluído com SUCESSO!" -ForegroundColor Green
     Write-Host "[OK] Tempo de upload: $($DuracaoUpload.Hours)h $($DuracaoUpload.Minutes)m $($DuracaoUpload.Seconds)s`n" -ForegroundColor Green
     Start-Sleep -Seconds 1
 
 } catch {
-    throw "Erro crÃ­tico durante o upload para a Wasabi: $_"
+    throw "Erro crítico durante o upload para a Wasabi: $_"
 } finally {
     $SecretKeyWasabiTexto = $null
 }
@@ -369,8 +399,8 @@ CREATE TABLE IF NOT EXISTS BACKUP_AUDIT (
 Invoke-SqliteQuery -DataSource $DbPath -Query $Schema | Out-Null
 
 $AppUuid = "{73C8CDF8-C8A6-45A3-8B8E-A62085661CF1}"
-$AppVersion = "v1.0.0"
-$AppUserVersion = "v1.0.0"
+$AppVersion = "v1.0.2"
+$AppUserVersion = "v1.0.2"
 $AppProvider = "MS_APPS"
 
 $QueryInsertMeta = @"
