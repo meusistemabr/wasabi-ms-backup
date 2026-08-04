@@ -100,10 +100,10 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
         
     } else {
         Write-Host "[*] Cliente MariaDB ou legado detectado..." -ForegroundColor DarkCyan
-        $ListaBancos = $(& $MysqlExe $ArgumentosBase 2>&1) | Where-Object { 
+        $ArgumentosMariaDB = $ArgumentosBase + "--skip-ssl"
+        $ListaBancos = $(& $MysqlExe $ArgumentosMariaDB 2>&1) | Where-Object { 
             $_ -notmatch "WARNING" -and 
-            $_ -notmatch "passwordless login" -and
-            [string]::OrNullWhiteSpace($_) -eq $false
+            -not ([string]::IsNullOrWhiteSpace($_))
         }
     }
 
