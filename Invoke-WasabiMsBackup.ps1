@@ -134,16 +134,27 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
 
             Write-Host "[*] Realizando dump de: $Banco ..." -ForegroundColor Cyan
            
-            $ComandoDump = "cmd.exe /c `"`"$MysqldumpExe`" -h $($DbConfig.Host) -P $($DbConfig.Port) -u $($DbConfig.User) --single-transaction --routines --triggers $Banco > `"$CaminhoSql`" 2>nul`""
-            Invoke-Expression $ComandoDump
-
-            Start-Sleep -Seconds 1
+            #$ComandoDump = & "cmd.exe /c `"`"$MysqldumpExe`" -h $($DbConfig.Host) -P $($DbConfig.Port) -u $($DbConfig.User) --single-transaction --routines --triggers $Banco > `"$CaminhoSql`" 2>nul`""
+            $ArgumentosDump = @(
+                "-h", $DbConfig.Host, 
+                "-P", $DbConfig.Port, 
+                "-u", $DbConfig.User, 
+                "--single-transaction", 
+                "--routines", 
+                "--triggers", 
+                "--skip-ssl",
+                $Banco, 
+                "--result-file=$CaminhoSql"
+            )
+            & $MysqldumpExe $ArgumentosDump 2>$null
+            Start-Sleep -Seconds 2
 
             if (Test-Path $CaminhoSql) {
                 Write-Host "[**] Compactando $Banco individualmente..." -ForegroundColor DarkGray
                
                 $ArgsRarInd = @("a", "-m5", "-ep", "-y", "-hp$SenhaRarTexto", "`"$CaminhoRarInd`"", "`"$CaminhoSql`"")
                 $ProcessoRarInd = Start-Process -FilePath $Config.WinRarPath -ArgumentList $ArgsRarInd -Wait -NoNewWindow -PassThru
+                Start-Sleep -Seconds 1
                 
                 if ($ProcessoRarInd.ExitCode -eq 0) {
                     $StreamInd = [System.IO.File]::OpenRead($CaminhoRarInd)
@@ -154,7 +165,7 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
                     Write-Host "[OK] ARQUIVO RAR gerado. Checksum SHA256: $HashInd" -ForegroundColor Green
                     Remove-Item -Path $CaminhoSql -Force
                 } else {
-                    Write-Host "    [ERRO] Falha ao compactar o banco $Banco" -ForegroundColor Red
+                    Write-Host "[ERRO] Falha ao compactar o banco $Banco" -ForegroundColor Red
                 }
             }
         }
