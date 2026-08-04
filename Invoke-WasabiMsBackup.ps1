@@ -101,8 +101,8 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
     } else {
         Write-Host "[*] Cliente MariaDB ou legado detectado..." -ForegroundColor DarkCyan
         $ListaBancos = & $MysqlExe $ArgumentosBase 2>&1 | Where-Object { 
-            $_ -notmatch "WARNING: option --ssl-verify-server-cert is disabled" -and 
-            $_ -notmatch "passwordless login" 
+            $_ -notmatch "WARNING: option --ssl-verify-server-cert is disabled, because of an insecure" -and 
+            $_ -notmatch "passwordless login." 
         }
     }
 
