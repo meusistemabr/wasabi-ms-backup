@@ -8,7 +8,7 @@ Start-Sleep -Seconds 2
 
 $ConfigFile = ".\config.json"
 if (-not (Test-Path $ConfigFile)) {
-    throw "Arquivo de configuraÃ§Ã£o nÃ£o encontrado: $ConfigFile"
+    throw "Arquivo de configuração não encontrado: $ConfigFile"
 }
 $Config = Get-Content $ConfigFile -Raw | ConvertFrom-Json
 Start-Sleep -Seconds 1
@@ -66,8 +66,13 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
     Write-Host "[OK] Verificando status do servidor BD e obtendo bancos..." -ForegroundColor Yellow
     Start-Sleep -Seconds 1
     
-    $ComandoListaDBs = "& `"$MysqlExe`" -h $($DbConfig.Host) -P $($DbConfig.Port) -u $($DbConfig.User) -s -N -e `"SHOW DATABASES;`""
-    $ListaBancos = Invoke-Expression $ComandoListaDBs 2>&1
+    #$ComandoListaDBs = "& `"$MysqlExe`" -h $($DbConfig.Host) -P $($DbConfig.Port) -u $($DbConfig.User) -s -N -e `"SHOW DATABASES;`""
+    #$ListaBancos = Invoke-Expression $ComandoListaDBs 2>&1
+
+    $Argumentos = @("-h", $DbConfig.Host, "-P", $DbConfig.Port, "-u", $DbConfig.User, "-s", "-N", "-e", "SHOW DATABASES;")
+    $ListaBancos = & $MysqlExe $Argumentos 2>&1
+
+    Start-Sleep -Seconds 1
 
     if ($LASTEXITCODE -ne 0) {
         $env:MYSQL_PWD = $null
