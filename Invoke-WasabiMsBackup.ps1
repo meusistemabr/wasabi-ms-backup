@@ -1,14 +1,28 @@
 $ErrorActionPreference = "Stop"
 $ProgressPreference = 'SilentlyContinue'
 
-Write-Host "=== SCRIPT BACKUP AUTOM¡TICO WASABI MS (PROIBIDA REPRODU«√O) ===" -ForegroundColor Cyan
-Start-Sleep -Seconds 1
-Write-Host "[OK] Preparando vari·veis, descriptografando dados..." -ForegroundColor Cyan
+Write-Host "=== SCRIPT BACKUP AUTOM√ÅTICO WASABI MS (PROIBIDA REPRODU√á√ÉO) ===" -ForegroundColor Cyan
 Start-Sleep -Seconds 2
+
+
+$EhWindows = if ($null -ne $IsWindows) { $IsWindows } else { [Environment]::OSVersion.Platform -match "Win32" }
+
+if (-not $EhWindows) {
+    Write-Host "======================================================================" -ForegroundColor Red
+    Write-Host "[ERRO CR√çTICO] Este script foi projetado EXCLUSIVAMENTE para WINDOWS." -ForegroundColor Red
+    Write-Host "Execu√ß√£o abortada para prevenir falhas de diret√≥rio ou comandos." -ForegroundColor Red
+    Write-Host "======================================================================" -ForegroundColor Red
+    exit 1
+}
+
+
+Write-Host "[OK] Preparando vari√°veis, descriptografando dados..." -ForegroundColor Cyan
+Start-Sleep -Seconds 1
 
 $ConfigFile = ".\config.json"
 if (-not (Test-Path $ConfigFile)) {
-    throw "Arquivo de configuraÁ„o n„o encontrado: $ConfigFile"
+    Write-Host "[ERRO CR√çTICO] Arquivo de configura√ß√£o n√£o encontrado: config.json`n`nLembre-se: O arquivo de configura√ß√£o dever√° estar no mesmo diret√≥rio do script. O diret√≥rio tamb√©m precisa de permiss√µes de leitura e grava√ß√£o." -ForegroundColor Red
+    exit 1
 }
 $Config = Get-Content $ConfigFile -Raw | ConvertFrom-Json
 Start-Sleep -Seconds 1
@@ -29,14 +43,15 @@ try {
         $SenhaRarTexto = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
     }
 } catch {
-    Write-Host "[AVISO] Falha ao descriptografar senha do WinRAR do JSON.`nImpossÌvel o script continuar a execuÁ„o, verifique o blob da senha e tente novamente..." -ForegroundColor DarkYellow
+    Write-Host "[AVISO] Falha ao descriptografar senha do WinRAR do JSON.`nImposs√≠vel o script continuar a execu√ß√£o, verifique o blob da senha e tente novamente..." -ForegroundColor DarkYellow
+    exit 1
 } finally {
     if ($BSTR) { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTR) }
 }
 if ([string]::IsNullOrWhiteSpace($SenhaRarTexto)) {
     $SenhaRarTexto = "{" + [guid]::NewGuid().ToString().ToUpper() + "}"
     $SenhaFallbackAtivada = $true
-    Write-Host "[AVISO] Utilizando SENHA PADR√O DE FALLBACK para o WinRAR." -ForegroundColor DarkYellow
+    Write-Host "[AVISO] Utilizando SENHA PADR√ÉO DE FALLBACK para o WinRAR." -ForegroundColor DarkYellow
 
     $CaminhoArquivo = Join-Path $PSScriptRoot "senha_winrar_gerada_automaticamente.txt"
     $SenhaRarTexto | Out-File -FilePath $CaminhoArquivo -Encoding utf8
@@ -62,21 +77,40 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
     }
 
     $env:MYSQL_PWD = $SenhaDbTexto
-
-    Write-Host "[OK] Verificando status do servidor BD e obtendo bancos..." -ForegroundColor Yellow
+    
+    $DbConfig = $Config.DataInfoBKPMariaDBMysql
+    $MysqlExe = Join-Path $DbConfig.BinPath "mysql.exe"
+    $MysqldumpExe = Join-Path $DbConfig.BinPath "mysqldump.exe"
+    
+    Write-Host "[OK] Verificando status do servidor BD e obtendo bancos...AGUARDE..." -ForegroundColor Yellow
     Start-Sleep -Seconds 1
     
-    #$ComandoListaDBs = "& `"$MysqlExe`" -h $($DbConfig.Host) -P $($DbConfig.Port) -u $($DbConfig.User) -s -N -e `"SHOW DATABASES;`""
-    #$ListaBancos = Invoke-Expression $ComandoListaDBs 2>&1
-
-    $Argumentos = @("-h", $DbConfig.Host, "-P", $DbConfig.Port, "-u", $DbConfig.User, "-s", "-N", "-e", "SHOW DATABASES;")
-    $ListaBancos = & $MysqlExe $Argumentos 2>&1
+    $InfoVersao = & $MysqlExe -V 2>&1
+    Start-Sleep -Seconds 1
+    
+    $SuportaSslMode = ($InfoVersao -match "MySQL" -and $InfoVersao -notmatch "MariaDB" -and ($InfoVersao -match "Distrib 5\.7\.[1-9][0-9]" -or $InfoVersao -match "Distrib [8-9]\."))
+    Start-Sleep -Seconds 1
+    
+    $ArgumentosBase = @("-h", $DbConfig.Host, "-P", $DbConfig.Port, "-u", $DbConfig.User, "-s", "-N", "-e", "SHOW DATABASES;")
+    
+    if ($SuportaSslMode) {
+        Write-Host "[*] Cliente MySQL nativo detectado..." -ForegroundColor DarkCyan
+        $ArgumentosFinais = $ArgumentosBase + "--ssl-mode=DISABLED"
+        $ListaBancos = & $MysqlExe $ArgumentosFinais 2>&1
+        
+    } else {
+        Write-Host "[*] Cliente MariaDB ou legado detectado..." -ForegroundColor DarkCyan
+        $ListaBancos = & $MysqlExe $ArgumentosBase 2>&1 | Where-Object { 
+            $_ -notmatch "WARNING: option --ssl-verify-server-cert is disabled" -and 
+            $_ -notmatch "passwordless login" 
+        }
+    }
 
     Start-Sleep -Seconds 1
 
     if ($LASTEXITCODE -ne 0) {
         $env:MYSQL_PWD = $null
-        throw "[ERROR] Erro CrÌtico: Falha ao conectar no BD. Verifique se est· online e se as credenciais tem permiss„o. Detalhes: $ListaBancos"
+        throw "[ERROR] Erro Cr√≠tico: Falha ao conectar no BD. Verifique se est√° online e se as credenciais tem permiss√£o. Detalhes: $ListaBancos"
     }
 
     $BancosSistema = @("information_schema", "mysql", "performance_schema", "sys")
@@ -84,7 +118,7 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
     Start-Sleep -Seconds 1
 
     if ($BancosParaBackup.Count -eq 0) {
-        Write-Host "Nenhum banco de dados de usu·rio encontrado para backup." -ForegroundColor Yellow
+        Write-Host "Nenhum banco de dados de usu√°rio encontrado para backup." -ForegroundColor Yellow
     } else {
         Write-Host "Encontrados $($BancosParaBackup.Count) bancos de dados para dump." -ForegroundColor Green
         $PastaBancosTemp = Join-Path $Config.CaminhoDestinoTemp "BancosDB_$DataHora"
@@ -159,12 +193,12 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
                 $BSTRWasabi = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureWasabi)
                 $SecretKeyWasabi = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTRWasabi)
                 
-                Write-Host "[*] Iniciando transferÍncia..." -ForegroundColor Yellow
+                Write-Host "[*] Iniciando transfer√™ncia..." -ForegroundColor Yellow
                 $TempoIniUploadDB = Get-Date
 
                 Start-Sleep -Seconds 2
 
-                Write-Host "[*] TransferÍncia em andamento... AGUARDE..." -ForegroundColor Yellow
+                Write-Host "[*] Transfer√™ncia em andamento... AGUARDE..." -ForegroundColor Yellow
                 Start-Sleep -Seconds 1
 
                 Write-S3Object -BucketName $Config.WasabiBucket `
@@ -181,7 +215,7 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
                                -ErrorAction Stop
 
                 $TempoFimUploadDB = Get-Date
-                Write-Host "[OK] Upload do BACKUP DO BANCO DE DADOS DO CLIENTE concluÌdo em $(($TempoFimUploadDB - $TempoIniUploadDB).TotalSeconds) segundos!" -ForegroundColor Green
+                Write-Host "[OK] Upload do BACKUP DO BANCO DE DADOS DO CLIENTE conclu√≠do em $(($TempoFimUploadDB - $TempoIniUploadDB).TotalSeconds) segundos!" -ForegroundColor Green
             } catch {
                 throw "[ERROR] Erro ao fazer upload do Banco de Dados: $_"
             } finally {
@@ -260,7 +294,7 @@ $RarArgs = @(
     "@`"$ListFilePath`""
 )
 
-Write-Host "[*] Iniciando compress„o com WinRAR de alta performance...`nAGUARDE A CONCLUS√O COMPLETA...." -ForegroundColor Yellow
+Write-Host "[*] Iniciando compress√£o com WinRAR de alta performance...`nAGUARDE A CONCLUS√ÉO COMPLETA...." -ForegroundColor Yellow
 Start-Sleep -Seconds 1
 $TempoInicio = Get-Date
 
@@ -273,17 +307,17 @@ Remove-Item -Path $ListFilePath -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 1
 
 if ($Process.ExitCode -eq 0) {
-    Write-Host "[OK] Compressao concluÌda com SUCESSO!" -ForegroundColor Green
+    Write-Host "[OK] Compressao conclu√≠da com SUCESSO!" -ForegroundColor Green
     Write-Host "[OK] Arquivo gerado: $CaminhoCompletoRar" -ForegroundColor Green
-    Write-Host "[OK] Tempo de compress„o: $($Duracao.Hours)h $($Duracao.Minutes)m $($Duracao.Seconds)s`n" -ForegroundColor Green
+    Write-Host "[OK] Tempo de compress√£o: $($Duracao.Hours)h $($Duracao.Minutes)m $($Duracao.Seconds)s`n" -ForegroundColor Green
 } elseif ($Process.ExitCode -eq 1) {
-    Write-Host "[OK] Compress„o concluÌda com AVISOS (Alguns arquivos podem estar em uso e foram pulados)." -ForegroundColor DarkYellow
+    Write-Host "[OK] Compress√£o conclu√≠da com AVISOS (Alguns arquivos podem estar em uso e foram pulados)." -ForegroundColor DarkYellow
     Write-Host "[OK] Arquivo gerado: $CaminhoCompletoRar`n" -ForegroundColor DarkYellow
 } else {
-    throw "[ERROR] ERRO FATAL na compress„o. CÛdigo de saÌda do WinRAR: $($Process.ExitCode)"
+    throw "[ERROR] ERRO FATAL na compress√£o. C√≥digo de sa√≠da do WinRAR: $($Process.ExitCode)"
 }
 Start-Sleep -Seconds 1
-Write-Host "[OK] Processo de compactaÁ„o finalizado com sucesso... Aguarde..." -ForegroundColor Green
+Write-Host "[OK] Processo de compacta√ß√£o finalizado com sucesso... Aguarde..." -ForegroundColor Green
 Start-Sleep -Seconds 1
 $SenhaRarTexto = $null
 
@@ -308,7 +342,7 @@ try {
 Write-Host "[OK] Preparando upload para servidor remoto S3" -ForegroundColor Cyan
 
 if (-not (Get-Module -ListAvailable -Name AWS.Tools.S3)) {
-    throw "[ERROR] MÛdulo AWS.Tools.S3 n„o encontrado. Instale com: Install-Module -Name AWS.Tools.S3 -Force"
+    throw "[ERROR] M√≥dulo AWS.Tools.S3 n√£o encontrado. Instale com: Install-Module -Name AWS.Tools.S3 -Force"
 }
 
 try {
@@ -332,12 +366,12 @@ $MetadadosS3 = @{
     "guid-versao" = $GuidVersao
 }
 
-Write-Host "[*] Iniciando transferÍncia..." -ForegroundColor Yellow
+Write-Host "[*] Iniciando transfer√™ncia..." -ForegroundColor Yellow
 $TempoInicioUpload = Get-Date
 Start-Sleep -Seconds 1
 
 try {
-    Write-Host "[*] TransferÍncia em andamento... AGUARDE..." -ForegroundColor Yellow
+    Write-Host "[*] Transfer√™ncia em andamento... AGUARDE..." -ForegroundColor Yellow
     Start-Sleep -Seconds 1
     Write-S3Object -BucketName $Config.WasabiBucket `
                    -Key $NomeArquivoRar `
@@ -356,12 +390,12 @@ try {
     $DuracaoUpload = $TempoFimUpload - $TempoInicioUpload
     Start-Sleep -Seconds 1
 
-    Write-Host "[OK] Upload concluÌdo com SUCESSO!" -ForegroundColor Green
+    Write-Host "[OK] Upload conclu√≠do com SUCESSO!" -ForegroundColor Green
     Write-Host "[OK] Tempo de upload: $($DuracaoUpload.Hours)h $($DuracaoUpload.Minutes)m $($DuracaoUpload.Seconds)s`n" -ForegroundColor Green
     Start-Sleep -Seconds 1
 
 } catch {
-    throw "Erro crÌtico durante o upload para a Wasabi: $_"
+    throw "Erro cr√≠tico durante o upload para a Wasabi: $_"
 } finally {
     $SecretKeyWasabiTexto = $null
 }
