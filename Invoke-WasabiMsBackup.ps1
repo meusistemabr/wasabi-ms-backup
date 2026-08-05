@@ -40,6 +40,8 @@ if (-not $EhWindows) {
 Write-Host "[OK] Preparando variáveis, descriptografando dados..." -ForegroundColor Cyan
 Start-Sleep -Seconds 1
 
+
+$DataHoraMili = Get-Date -Format "yyyyMMdd_HHmmss_fff"
 $ConfigFile = ".\config.json"
 if (-not (Test-Path $ConfigFile)) {
     Write-Host "[ERRO CRÍTICO] Arquivo de configuração não encontrado: config.json`n`nLembre-se: O arquivo de configuração deverá estar no mesmo diretório do script. O diretório também precisa de permissões de leitura e gravação." -ForegroundColor Red
@@ -349,7 +351,6 @@ if ($Config.IncluiBackupFirebird -eq $true) {
 
         # Extrai apenas o nome do banco (ex: DADOS)
         $NomeArquivoBase = [System.IO.Path]::GetFileNameWithoutExtension($CaminhoFDB)
-        $DataHoraMili = Get-Date -Format "yyyyMMdd_HHmmss_fff"
         
         $NomeFbk = "$($NomeArquivoBase)_$DataHoraMili.fbk"
         $CaminhoFbk = Join-Path $PastaFbTemp $NomeFbk
@@ -359,7 +360,7 @@ if ($Config.IncluiBackupFirebird -eq $true) {
         Start-Sleep -Seconds 2
         
         $StringConexao = "$($FbHost)/$($FbPort):$($CaminhoFDB)"
-        $LogErroGbak = Join-Path $PastaFbTemp "gbak_$($NomeArquivoBase)_err.log"
+        $LogErroGbak = Join-Path $PastaFbTemp "gbak_$($NomeArquivoBase)_$DataHoraMili-err.log"
         $ArgsGbak = @(
             "-b", 
             "-user", $FbUser, 
@@ -399,14 +400,14 @@ if ($Config.IncluiBackupFirebird -eq $true) {
     if ($BancosFbComSucesso -gt 0) {
         Write-Host "[OK] Compactação individual dos DBs Firebird concluída com SUCESSO! AGUARDE..." -ForegroundColor Green
         Start-Sleep -Seconds 1
-        $NomeMasterFB = "MasterBackupFirebird_$($Config.Cliente)_$DataHora.rar"
+        $NomeMasterFB = "MasterBackupFirebird_$($Config.Cliente)_$DataHoraMili.rar"
         $CaminhoMasterFB = Join-Path $Config.CaminhoDestinoTemp $NomeMasterFB
         
         Write-Host "`n[OK] Unindo $BancosFbComSucesso banco(s) Firebird no arquivo: $NomeMasterFB" -ForegroundColor Yellow
 
         $ArgsMasterFB = @("a", "-m5", "-ep", "-y", "-idq", "-hp$SenhaRarTexto", "`"$CaminhoMasterFB`"", "$PastaFbTemp\*.rar")
         $ProcMasterFB = Start-Process -FilePath $Config.WinRarPath -ArgumentList $ArgsMasterFB -NoNewWindow -PassThru
-        Wait-ProcessWithSpinner -Process $ProcMasterFB -Mensagem "Compactação do arquivo único com todos os DBs... AGUARDE..." -ForegroundColor Green
+        Wait-ProcessWithSpinner -Process $ProcMasterFB -Mensagem "Compactação do arquivo único com todos os DBs... AGUARDE..."
 
         Start-Sleep -Seconds 1
         if ($ProcMasterFB.ExitCode -eq 0) {
