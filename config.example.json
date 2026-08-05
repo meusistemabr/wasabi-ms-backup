@@ -21,6 +21,15 @@
         "SecretPassEncrypted": "SENHA_ROOT_ENCRIPTADA_PELO_SEU_SCRIPT_DPAPI",
         "BinPath": "C:\\Program Files\\MariaDB 10.6\\bin"
     },
+    "IncluiBackupFirebird": true,
+    "DataInfoBKPFirebird": {
+        "Host": "127.0.0.1",
+        "Port": 3050,
+        "CaminhosFDB": [
+            "__CAMINHO_BD_FIREBIRD_DADOS.FDB__"
+        ],
+        "BinPath": "C:\\Program Files\\Firebird\\Firebird_3_0"
+    },
 
 
     "_Module": "Comando para rodar 1ª e única vez.: Install-Module -Name PSSQLite -Force",
