@@ -80,7 +80,7 @@ if ([string]::IsNullOrWhiteSpace($SenhaRarTexto)) {
 
 
 if ($Config.IncluiBackupMariaDBMysql -eq $true) {
-    Write-Host "`n=== INICIANDO BACKUP DO BANCO DE DADOS.... ==="-ForegroundColor Cyan
+    Write-Host "`n=== INICIANDO BACKUP DO BANCO DE DADOS [MARIADB/MYSQL].... ===" -ForegroundColor Cyan
     $DbConfig = $Config.DataInfoBKPMariaDBMysql
     $MysqlExe = Join-Path $DbConfig.BinPath "mysql.exe"
     $MysqldumpExe = Join-Path $DbConfig.BinPath "mysqldump.exe"
@@ -303,12 +303,18 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
     $env:MYSQL_PWD = $null
     if ($BSTRDb) { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTRDb) }
     Start-Sleep -Seconds 1
+
+    Write-Host "`n[OK] Procedimentos de backup de BDs Mysql/MariaDB concluídos... AGUARDE..." -ForegroundColor DarkYellow
+    Start-Sleep -Seconds 2
+} else {
+    Write-Host "`n=== IGNORANDO BACKUP DO BANCO DE DADOS [MARIADB/MYSQL].... ===" -ForegroundColor Cyan
+    Start-Sleep -Seconds 2
+    Write-Host "`n[OK] AGUARDE..." -ForegroundColor DarkYellow
 }
 
 
 
-Write-Host "`n[OK] Procedimentos de backup de BDs Mysql/MariaDB concluídos... AGUARDE..." -ForegroundColor DarkYellow
-Start-Sleep -Seconds 2
+
 
 
 if ($Config.IncluiBackupFirebird -eq $true) {
