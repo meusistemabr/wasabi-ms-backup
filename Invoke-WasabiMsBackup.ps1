@@ -191,9 +191,10 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
         $CaminhoMasterDB = Join-Path $Config.CaminhoDestinoTemp $NomeMasterDB
         Write-Host "`n[OK] Unindo todos os bancos de dados em um arquivo Master: $NomeMasterDB" -ForegroundColor Yellow
 
-        $ArgsRarMaster = @("a", "-m0", "-ep", "-y", "-idq", "-hp$SenhaRarTexto", "`"$CaminhoMasterDB`"", "$PastaBancosTemp\*.rar")
+        #$ArgsRarMaster = @("a", "-m0", "-ep", "-y", "-idq", "-hp$SenhaRarTexto", "`"$CaminhoMasterDB`"", "$PastaBancosTemp\*.rar")
+        $ArgsRarMaster = @("a", "-m0", "-ep", "-y", "-idq", "-hp$SenhaRarTexto", $CaminhoMasterDB, "$PastaBancosTemp\*.rar")
         $ProcessoMaster = Start-Process -FilePath $Config.WinRarPath -ArgumentList $ArgsRarMaster -NoNewWindow -PassThru
-        Wait-ProcessWithSpinner -Process $ProcessoMaster -Mensagem "Realizando compactação de todos BDs... AGUARDE..."
+        Wait-ProcessWithSpinner -Process $ProcessoMaster -Mensagem "Realizando compactação de todos BDs em um único arquivo... AGUARDE..."
 
         if ($ProcessoMaster.ExitCode -eq 0) {
             Write-Host "[OK] Pacote Master de Bancos de Dados gerado com sucesso!" -ForegroundColor Green
@@ -364,15 +365,8 @@ if ($Config.IncluiBackupFirebird -eq $true) {
         
         $StringConexao = "$($FbHost)/$($FbPort):$($CaminhoFDB)"
         $LogErroGbak = Join-Path $PastaFbTemp "gbak_$($NomeArquivoBase)_$DataHoraMili-err.log"
-        $ArgsGbak = @(
-            "-b", 
-            "-user", $FbUser, 
-            "-password", $FbPass, 
-            "`"$StringConexao`"", 
-            "`"$CaminhoFbk`""
-        )
+        $ArgCompactar = @("a", "-ep1", "-hp$SenhaRarTexto", $CaminhoDestinoRar, $CaminhoOrigemSql)
 
-        $ProcGbak = Start-Process -FilePath $GbakExe -ArgumentList $ArgsGbak -Wait -NoNewWindow -PassThru -RedirectStandardError $LogErroGbak
         Start-Sleep -Seconds 1
 
         if ($ProcGbak.ExitCode -eq 0 -and (Test-Path $CaminhoFbk)) {
