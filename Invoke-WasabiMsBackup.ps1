@@ -247,7 +247,10 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
                 $TempoFimUploadDB = Get-Date
                 Write-Host "[OK] Upload do BACKUP DO BANCO DE DADOS DO CLIENTE concluído em $(($TempoFimUploadDB - $TempoIniUploadDB).TotalSeconds) segundos!" -ForegroundColor Green
             } catch {
-                throw "[ERROR] Erro ao fazer upload do Banco de Dados: $_"
+                Write-Host "[ERROR] Erro ao fazer upload do Banco de Dados: $_" -ForegroundColor Red
+                Write-Host "[ERROR] Verifique se a Chave Secreta do Servidor de Backup está encriptada e corretamente inserida no arquivo config.json, remova espaços vazios e caracteres especiais se houver. Verifique se configurou corretamente as devidas permissões necessárias ao usuário criado para este perfil de backup." -ForegroundColor Red
+                Write-Host "[ERROR] Script encerrado." -ForegroundColor Red
+                exit 1
             } finally {
                 if ($BSTRWasabi) { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTRWasabi); $SecretKeyWasabi = $null }
             }
@@ -380,10 +383,10 @@ if ($Config.IncluiBackupFirebird -eq $true) {
             $ArgsRarFb = @("a", "-m5", "-ep", "-y", "-idq", "-hp$SenhaRarTexto", "`"$CaminhoRarFbInd`"", "`"$CaminhoFbk`"")
             $ProcRarFb = Start-Process -FilePath $Config.WinRarPath -ArgumentList $ArgsRarFb -NoNewWindow -PassThru
 
-            Wait-ProcessWithSpinner -Process $ProcRarFb -Mensagem "Realizando compactação do BD Firebird... AGUARDE..."
+            Wait-ProcessWithSpinner -Process $ProcRarFb -Mensagem "Realizando compactação do .FBK Firebird unitário... AGUARDE..."
             
             if ($ProcRarFb.ExitCode -eq 0) {
-                Write-Host "[OK] FDB compactado e blindado com sucesso." -ForegroundColor Green
+                Write-Host "[OK] .FBK compactado e blindado com sucesso." -ForegroundColor Green
                 Start-Sleep -Seconds 1
                 $BancosFbComSucesso++
                 Remove-Item -Path $CaminhoFbk -Force
@@ -392,13 +395,13 @@ if ($Config.IncluiBackupFirebird -eq $true) {
                 Start-Sleep -Seconds 1
             }
         } else {
-            Write-Host "    [ERRO] Falha crítica ao gerar o .fbk. Verifique se a porta $FbPort está correta e o serviço online." -ForegroundColor Red
+            Write-Host "[ERRO] Falha crítica ao gerar o .fbk. Verifique se a porta $FbPort está correta e o serviço está acessível. Se usa servidor remoto dedicado para o Firebird, verifique se possui algum firewall bloqueando o acesso." -ForegroundColor Red
             Start-Sleep -Seconds 1
         }
     }
 
     if ($BancosFbComSucesso -gt 0) {
-        Write-Host "[OK] Compactação individual dos DBs Firebird concluída com SUCESSO! AGUARDE..." -ForegroundColor Green
+        Write-Host "[OK] Compactação individual dos FBKs Firebird concluída com SUCESSO! AGUARDE..." -ForegroundColor Green
         Start-Sleep -Seconds 1
         $NomeMasterFB = "MasterBackupFirebird_$($Config.Cliente)_$DataHoraMili.rar"
         $CaminhoMasterFB = Join-Path $Config.CaminhoDestinoTemp $NomeMasterFB
@@ -416,7 +419,7 @@ if ($Config.IncluiBackupFirebird -eq $true) {
             
             Start-Sleep -Seconds 2
 
-            Write-Host "`n=== Iniciando procedimentos para envio para servidor de Backup ===" -ForegroundColor Cyan
+            Write-Host "`n[*] Preparação para envio ao servidor de Backup..." -ForegroundColor Cyan
             
             $StreamFB = [System.IO.File]::OpenRead($CaminhoMasterFB)
             $SHA256FB = [System.Security.Cryptography.SHA256]::Create()
@@ -438,7 +441,7 @@ if ($Config.IncluiBackupFirebird -eq $true) {
                 $SecretKeyWasabi = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTRWasabi)
                 Start-Sleep -Seconds 2
                 
-                Write-Host "[*] Preparação concluída, iniciando envio..." -ForegroundColor Yellow
+                Write-Host "[*] Preparação concluída com sucesso. Iniciando envio..." -ForegroundColor Yellow
                 $TempoIniUploadFB = Get-Date
 
                 Write-Host "[*] Transferência em andamento... AGUARDE..." -ForegroundColor Yellow
@@ -457,9 +460,9 @@ if ($Config.IncluiBackupFirebird -eq $true) {
                                -ErrorAction Stop
 
                 $TempoFimUploadFB = Get-Date
-                Write-Host "[OK] Upload do Firebird concluído em $(($TempoFimUploadFB - $TempoIniUploadFB).TotalSeconds) segundos!" -ForegroundColor Green
+                Write-Host "[OK] Upload do arquivo concluído em $(($TempoFimUploadFB - $TempoIniUploadFB).TotalSeconds) segundos!" -ForegroundColor Green
             } catch {
-                throw "Erro ao fazer upload do Firebird: $_"
+                throw "Erro ao fazer upload do Firebird."
             } finally {
                 if ($BSTRWasabi) { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTRWasabi); $SecretKeyWasabi = $null }
             }
