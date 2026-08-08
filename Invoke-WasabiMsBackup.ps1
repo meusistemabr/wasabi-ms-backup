@@ -13,13 +13,31 @@ function Wait-ProcessWithSpinner {
 
     $Animacao = @('|', '/', '-', '\')
     $Contador = 0
+
     while (-not $Process.HasExited) {
-        Write-Host "`r[ $($Animacao[$Contador % 4]) ] $Mensagem" -NoNewline -ForegroundColor Cyan
+        Write-Host "`r[ $($Animacao[$Contador % 4]) ]$Mensagem" -NoNewline -ForegroundColor Cyan
         $Contador++
         Start-Sleep -Milliseconds 200
     }
+    $Process.WaitForExit()
+
     $Espacos = " " * ($Mensagem.Length + 15)
     Write-Host "`r$Espacos`r" -NoNewline
+}
+function Convert-ToUrlSlug {
+    param (
+        [string]$TextoEntrada
+    )
+
+    if ([string]::IsNullOrWhiteSpace($TextoEntrada)) {
+        return ""
+    }
+    $Resultado = $TextoEntrada.ToLower()
+    $Bytes = [System.Text.Encoding]::GetEncoding("Cyrillic").GetBytes($Resultado)
+    $Resultado = [System.Text.Encoding]::ASCII.GetString($Bytes)
+    $Resultado = $Resultado -replace '[^a-z0-9]', '-'
+
+    return $Resultado
 }
 
 Write-Host "=== SCRIPT BACKUP AUTOMÁTICO WASABI MS (PROIBIDA REPRODUÇÃO) ===" -ForegroundColor Cyan
@@ -105,9 +123,13 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
     Start-Sleep -Seconds 1
     
     $InfoVersao = & $MysqlExe -V 2>&1
+    $InfoVersaoString = $InfoVersao -join " "
     Start-Sleep -Seconds 1
     
-    $SuportaSslMode = ($InfoVersao -match "MySQL" -and $InfoVersao -notmatch "MariaDB" -and ($InfoVersao -match "Distrib 5\.7\.[1-9][0-9]" -or $InfoVersao -match "Distrib [8-9]\."))
+    $IsMariaDB = $InfoVersaoString -match "MariaDB"
+    $IsModernMySQL = $InfoVersaoString -match "(Ver|Distrib)\s+(5\.7|[8-9]\.)"
+    
+    $SuportaSslMode = (-not $IsMariaDB) -and $IsModernMySQL
     Start-Sleep -Seconds 1
     
     $ArgumentosBase = @("-h", $DbConfig.Host, "-P", $DbConfig.Port, "-u", $DbConfig.User, "-s", "-N", "-e", "SHOW DATABASES;")
@@ -115,14 +137,15 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
     if ($SuportaSslMode) {
         Write-Host "[*] Cliente MySQL nativo detectado..." -ForegroundColor DarkCyan
         $ArgumentosFinais = $ArgumentosBase + "--ssl-mode=DISABLED"
-        $ListaBancos = & $MysqlExe $ArgumentosFinais 2>&1
+        $ListaBancos = $(& $MysqlExe $ArgumentosFinais 2>&1) | Where-Object { 
+            $_ -notmatch "Warning" -and -not ([string]::IsNullOrWhiteSpace($_))
+        }
         
     } else {
         Write-Host "[*] Cliente MariaDB ou legado detectado..." -ForegroundColor DarkCyan
         $ArgumentosMariaDB = $ArgumentosBase + "--skip-ssl"
         $ListaBancos = $(& $MysqlExe $ArgumentosMariaDB 2>&1) | Where-Object { 
-            $_ -notmatch "WARNING" -and 
-            -not ([string]::IsNullOrWhiteSpace($_))
+            $_ -notmatch "Warning" -and -not ([string]::IsNullOrWhiteSpace($_))
         }
     }
 
@@ -138,61 +161,78 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
     Start-Sleep -Seconds 1
 
     if ($BancosParaBackup.Count -eq 0) {
-        Write-Host "Nenhum banco de dados de usuário encontrado para backup."-ForegroundColor Yellow
+        Write-Host "[PASS] Nenhum banco de dados de usuário encontrado para backup." -ForegroundColor Yellow
     } else {
-        Write-Host "Encontrados $($BancosParaBackup.Count) bancos de dados para dump."-ForegroundColor Green
-        $PastaBancosTemp = Join-Path $Config.CaminhoDestinoTemp "BancosDB_$DataHora"
+        $DataHoraMili = Get-Date -Format "yyyyMMdd_HHmmss_fff"
+        Write-Host "[OK] Encontrados $($BancosParaBackup.Count) bancos de dados para dump." -ForegroundColor Green
+        $PastaBancosTemp = Join-Path $Config.CaminhoDestinoTemp "BancosDB_$DataHoraMili"
         New-Item -ItemType Directory -Path $PastaBancosTemp -Force | Out-Null
 
         foreach ($Banco in $BancosParaBackup) {
-            $Banco = $Banco.Trim()
-            $DataHoraMili = Get-Date -Format "yyyyMMdd_HHmmss_fff"
-            $NomeDumpSql = "$($Banco)_$DataHoraMili.sql"
+            #$nm_bd_sanitizado = Convert-ToUrlSlug -TextoEntrada $Banco
+            $nm_bd_sanitizado = $Banco
+            $NomeDumpSql = "$($nm_bd_sanitizado)_$DataHoraMili.sql"
             $CaminhoSql = Join-Path $PastaBancosTemp $NomeDumpSql
-            $CaminhoRarInd = Join-Path $PastaBancosTemp "$($Banco)_$DataHoraMili.rar"
-            Write-Host "[*] Realizando dump de: $Banco ..."-ForegroundColor Cyan
+            $CaminhoRarInd = Join-Path $PastaBancosTemp "$($nm_bd_sanitizado)_$DataHoraMili.rar"
+            Write-Host "[*] Realizando dump de: $Banco ... AGUARDE..." -ForegroundColor Cyan
+
             $ArgumentosDump = @(
                 "-h", $DbConfig.Host, 
                 "-P", $DbConfig.Port, 
                 "-u", $DbConfig.User, 
                 "--single-transaction", 
                 "--routines", 
-                "--triggers", 
-                "--skip-ssl",
-                $Banco, 
-                "--result-file=$CaminhoSql"
+                "--triggers"
             )
-            & $MysqldumpExe $ArgumentosDump 2>$null
-            Start-Sleep -Seconds 2
+
+            if ($SuportaSslMode) {
+                $ArgumentosDump += "--ssl-mode=DISABLED"
+            } else {
+                $ArgumentosDump += "--skip-ssl"
+            }
+
+            $ArgumentosDump += $Banco
+            $ArgumentosDump += "--result-file=`"$CaminhoSql`""
+
+            #& $MysqldumpExe $ArgumentosDump 2>$null
+            $ProcessoMysqlDump = Start-Process -FilePath $MysqldumpExe -ArgumentList $ArgumentosDump -RedirectStandardOutput "C:\hostinger_remoto\easyphp_hosts\wasabi_ms_backup\logs\out_mysqldump.txt" -RedirectStandardError "C:\hostinger_remoto\easyphp_hosts\wasabi_ms_backup\logs\err_mysqldump.txt" -Wait -NoNewWindow -PassThru
+            Start-Sleep -Seconds 8
 
             if (Test-Path $CaminhoSql) {
-                Write-Host "[**] Compactando $Banco individualmente..." -ForegroundColor DarkGray
-               
-                $ArgsRarInd = @("a", "-m5", "-ep", "-y", "-idq", "-hp$SenhaRarTexto", "`"$CaminhoRarInd`"", "`"$CaminhoSql`"")
-                $ProcessoRarInd = Start-Process -FilePath $Config.WinRarPath -ArgumentList $ArgsRarInd -NoNewWindow -PassThru
-                Wait-ProcessWithSpinner -Process $ProcessoRarInd -Mensagem "Realizando compactação do BD individual... AGUARDE..."
+                Write-Host "[OK] Dump do banco de dados realizado com sucesso!" -ForegroundColor Green
+                Start-Sleep -Seconds 2
+                Write-Host "[*] Iniciando compactação do Banco de Dados individual..." -ForegroundColor DarkGray
+
+                $ArgsRarInd = "a -m5 -ep -y -idq -df `"$CaminhoRarInd`" `"$CaminhoSql`""
+
                 Start-Sleep -Seconds 1
-                
+                $TempoInicio = Get-Date
+
+                $ProcessoRarInd = Start-Process -FilePath $Config.WinRarPath -ArgumentList $ArgsRarInd -RedirectStandardOutput "C:\hostinger_remoto\easyphp_hosts\wasabi_ms_backup\logs\out.txt" -RedirectStandardError "C:\hostinger_remoto\easyphp_hosts\wasabi_ms_backup\logs\err.txt" -Wait -NoNewWindow -PassThru
+               
+                #$ArgsRarInd = "a -m5 -ep -y -idq `"-hp$SenhaRarTexto`" `"$CaminhoRarInd`" `"$CaminhoSql`""
+                #$ProcessoRarInd = Start-Process -FilePath $Config.WinRarPath -ArgumentList $ArgsRarInd -NoNewWindow -PassThru
+                #Wait-ProcessWithSpinner -Process $ProcessoRarInd -Mensagem "Compactação do Banco de Dados (Dump) individual em andamento... AGUARDE..."
+                Start-Sleep -Seconds 2
                 if ($ProcessoRarInd.ExitCode -eq 0) {
                     $StreamInd = [System.IO.File]::OpenRead($CaminhoRarInd)
                     $SHA256Ind = [System.Security.Cryptography.SHA256]::Create()
                     $HashInd = [System.BitConverter]::ToString($SHA256Ind.ComputeHash($StreamInd)).Replace("-", "").ToLower()
                     $StreamInd.Dispose(); $SHA256Ind.Dispose()
                     
-                    Write-Host "[OK] ARQUIVO RAR gerado. Checksum SHA256: $HashInd" -ForegroundColor Green
-                    Remove-Item -Path $CaminhoSql -Force
+                    Write-Host "[OK] ARQUIVO RAR gerado com sucesso! Checksum SHA256: $HashInd" -ForegroundColor Green
                 } else {
-                    Write-Host "[ERRO] Falha ao compactar o banco $Banco" -ForegroundColor Red
+                    Write-Host "[ERRO] Falha ao compactar o banco $Banco. (C�digo do Erro: $($ProcessoRarInd.ExitCode))" -ForegroundColor Red
+                    exit 1
                 }
             }
         }
         Start-Sleep -Seconds 1
-        $NomeMasterDB = "MasterBackupDB_$($Config.Cliente)_$DataHora.rar"
+        $NomeMasterDB = "MasterBackupDB_$($Config.Cliente)_$DataHoraMili.rar"
         $CaminhoMasterDB = Join-Path $Config.CaminhoDestinoTemp $NomeMasterDB
         Write-Host "`n[OK] Unindo todos os bancos de dados em um arquivo Master: $NomeMasterDB" -ForegroundColor Yellow
 
-        #$ArgsRarMaster = @("a", "-m0", "-ep", "-y", "-idq", "-hp$SenhaRarTexto", "`"$CaminhoMasterDB`"", "$PastaBancosTemp\*.rar")
-        $ArgsRarMaster = @("a", "-m0", "-ep", "-y", "-idq", "-hp$SenhaRarTexto", $CaminhoMasterDB, "$PastaBancosTemp\*.rar")
+        $ArgsRarMaster = "a -m5 -ep -y -idq -df `"-hp$SenhaRarTexto`" `"$CaminhoMasterDB`" `"$PastaBancosTemp\*.rar`""
         $ProcessoMaster = Start-Process -FilePath $Config.WinRarPath -ArgumentList $ArgsRarMaster -NoNewWindow -PassThru
         Wait-ProcessWithSpinner -Process $ProcessoMaster -Mensagem "Realizando compactação de todos BDs em um único arquivo... AGUARDE..."
 
@@ -202,7 +242,7 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
             Remove-Item -Path $PastaBancosTemp -Recurse -Force
             Start-Sleep -Seconds 2
 
-            Write-Host "`n=== Iniciando Envio do Banco de Dados [MYSQL/MARIADB] para servidor de backup ===" -ForegroundColor Cyan
+            Write-Host "[*] Iniciando Envio do Banco de Dados [MYSQL/MARIADB] para servidor de backup..." -ForegroundColor Cyan
             
             $StreamDB = [System.IO.File]::OpenRead($CaminhoMasterDB)
             $SHA256DB = [System.Security.Cryptography.SHA256]::Create()
@@ -230,7 +270,6 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
                 Start-Sleep -Seconds 2
 
                 Write-Host "[*] Transferência em andamento... AGUARDE..." -ForegroundColor Yellow
-                Start-Sleep -Seconds 1
 
                 Write-S3Object -BucketName $Config.WasabiBucket `
                                -Key $NomeMasterDB `
@@ -352,8 +391,6 @@ if ($Config.IncluiBackupFirebird -eq $true) {
             Write-Host "[AVISO] Arquivo FDB não encontrado: $CaminhoFDB" -ForegroundColor DarkYellow
             continue
         }
-
-        # Extrai apenas o nome do banco (ex: DADOS)
         $NomeArquivoBase = [System.IO.Path]::GetFileNameWithoutExtension($CaminhoFDB)
         
         $NomeFbk = "$($NomeArquivoBase)_$DataHoraMili.fbk"
@@ -519,25 +556,15 @@ $DataHora = Get-Date -Format "yyyyMMdd_HHmmss"
 $NomeArquivoRar = "Backup_$($Config.Cliente)_$DataHora.rar"
 $CaminhoCompletoRar = Join-Path $Config.CaminhoDestinoTemp $NomeArquivoRar
 $ListFilePath = Join-Path $Config.CaminhoDestinoTemp "bkp_lista_$DataHora.txt"
-$Config.CaminhosOrigem | Out-File -FilePath $ListFilePath -Encoding UTF8
-$RarArgs = @(
-    "a", 
-    "-m5", 
-    "-md128m", 
-    "-rr5p", 
-    "-hp$SenhaRarTexto", 
-    "-ep3", 
-    "-y", 
-    "-idq", 
-    "`"$CaminhoCompletoRar`"", 
-    "@`"$ListFilePath`""
-)
+$Config.CaminhosOrigem | ForEach-Object { "`"$_`"" } | Out-File -FilePath $ListFilePath -Encoding UTF8
+
+$RarArgs = "a -m5 -md128 -rr5p -ep3 -y -idq `"-hp$SenhaRarTexto`" `"$CaminhoCompletoRar`" @`"$ListFilePath`""
 
 Write-Host "[*] Iniciando compressão dos arquivos escolhidos...`nAGUARDE A CONCLUSÃO COMPLETA...." -ForegroundColor Yellow
 Start-Sleep -Seconds 1
 $TempoInicio = Get-Date
 
-$Process = Start-Process -FilePath $Config.WinRarPath -ArgumentList $RarArgs -NoNewWindow -PassThru
+$Process = Start-Process -FilePath $Config.WinRarPath -ArgumentList $RarArgs -RedirectStandardOutput ".\logs\out_process_winrar_filesall_$DataHora.txt" -RedirectStandardError ".\logs\err_process_winrar_filesall_$DataHora.txt" -Wait -NoNewWindow -PassThru
 
 Wait-ProcessWithSpinner -Process $Process -Mensagem "[*] Compactando arquivos do sistema... Isso pode demorar."
 
@@ -555,11 +582,12 @@ if ($Process.ExitCode -eq 0) {
     Write-Host "[OK] Compressão concluída com AVISOS (Alguns arquivos podem estar em uso e foram pulados)." -ForegroundColor DarkYellow
     Write-Host "[OK] Arquivo gerado: $CaminhoCompletoRar`n" -ForegroundColor DarkYellow
 } else {
-    throw "[ERROR] ERRO FATAL na compressão. Código de saída do WinRAR: $($Process.ExitCode)"
+    Write-Host "[ERROR] ERRO FATAL na compressao. Codigo de sai�da do WinRAR: $($Process.ExitCode)" -ForegroundColor Red
+    exit 1
 }
 Start-Sleep -Seconds 1
-Write-Host "[OK] Processo de compactação finalizado com sucesso... AGUARDE..." -ForegroundColor Green
-Start-Sleep -Seconds 1
+Write-Host "[OK] Processo de compactacao finalizado com sucesso... AGUARDE..." -ForegroundColor Green
+Start-Sleep -Seconds 3
 $SenhaRarTexto = $null
 
 Write-Host "[OK] Calculando Checksum (SHA256) do arquivo gerado..." -ForegroundColor Yellow
@@ -571,7 +599,7 @@ try {
     $ChecksumHex = [System.BitConverter]::ToString($HashBytes).Replace("-", "").ToLower()
     $ChecksumBase64 = [System.Convert]::ToBase64String($HashBytes)
     Write-Host "[OK] Checksum (Hex): $ChecksumHex" -ForegroundColor Green
-    Start-Sleep -Seconds 1
+    Start-Sleep -Seconds 3
     
 } catch {
     throw "[ERROR] Falha ao calcular o Checksum do arquivo. Erro: $_"
