@@ -48,8 +48,8 @@ $EhWindows = if ($null -ne $IsWindows) { $IsWindows } else { [Environment]::OSVe
 
 if (-not $EhWindows) {
     Write-Host "======================================================================" -ForegroundColor Red
-    Write-Host "[ERRO CRÍTICO] Este script foi projetado EXCLUSIVAMENTE para WINDOWS." -ForegroundColor Red
-    Write-Host "Execução abortada para prevenir falhas de diretório ou comandos." -ForegroundColor Red
+    Write-Host "[ERRO CR�TICO] Este script foi projetado EXCLUSIVAMENTE para WINDOWS." -ForegroundColor Red
+    Write-Host "Execu��o abortada para prevenir falhas de diretório ou comandos." -ForegroundColor Red
     Write-Host "======================================================================" -ForegroundColor Red
     exit 1
 }
@@ -62,7 +62,7 @@ Start-Sleep -Seconds 1
 $DataHoraMili = Get-Date -Format "yyyyMMdd_HHmmss_fff"
 $ConfigFile = ".\config.json"
 if (-not (Test-Path $ConfigFile)) {
-    Write-Host "[ERRO CRÍTICO] Arquivo de configuração não encontrado: config.json`n`nLembre-se: O arquivo de configuração deverá estar no mesmo diretório do script. O diretório também precisa de permissões de leitura e gravação." -ForegroundColor Red
+    Write-Host "[ERRO CR�TICO] Arquivo de configura��o n�o encontrado: config.json`n`nLembre-se: O arquivo de configuração deverá estar no mesmo diret�rio do script. O diretório também precisa de permissões de leitura e gravação." -ForegroundColor Red
     exit 1
 }
 $Config = Get-Content $ConfigFile -Raw | ConvertFrom-Json
@@ -72,6 +72,11 @@ if (-not (Test-Path $Config.CaminhoDestinoTemp)) {
     New-Item -ItemType Directory -Path $Config.CaminhoDestinoTemp -Force | Out-Null
 }
 
+$PastaLogs = Join-Path $PSScriptRoot "logs"
+
+if (-not (Test-Path $PastaLogs)) { 
+    New-Item -ItemType Directory -Path $PastaLogs -Force | Out-Null 
+}
 
 $SenhaRarTexto = ""
 $SenhaFallbackAtivada = $false
@@ -153,7 +158,7 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
 
     if ($LASTEXITCODE -ne 0) {
         $env:MYSQL_PWD = $null
-        throw "[ERROR] Erro Crítico: Falha ao conectar no BD. Verifique se está online e se as credenciais tem permissão. Detalhes: $ListaBancos"
+        throw "[ERROR] Erro Critico: Falha ao conectar no BD. Verifique se esta online e se as credenciais tem permissão. Detalhes: $ListaBancos"
     }
 
     $BancosSistema = @("information_schema", "mysql", "performance_schema", "sys")
@@ -194,8 +199,10 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
             $ArgumentosDump += $Banco
             $ArgumentosDump += "--result-file=`"$CaminhoSql`""
 
-            #& $MysqldumpExe $ArgumentosDump 2>$null
-            $ProcessoMysqlDump = Start-Process -FilePath $MysqldumpExe -ArgumentList $ArgumentosDump -RedirectStandardOutput "C:\hostinger_remoto\easyphp_hosts\wasabi_ms_backup\logs\out_mysqldump.txt" -RedirectStandardError "C:\hostinger_remoto\easyphp_hosts\wasabi_ms_backup\logs\err_mysqldump.txt" -Wait -NoNewWindow -PassThru
+            $CaminhoLogRedirDumpInd = Join-Path $PastaLogs "\Logs_Process_SQLDUMP_BDs_ind.txt"
+            $CaminhoLogErrDumpInd = Join-Path $PastaLogs "\Logs_Errors_Process_SQLDUMP_BDs_ind.txt"
+
+            $ProcessoMysqlDump = Start-Process -FilePath $MysqldumpExe -ArgumentList $ArgumentosDump -RedirectStandardOutput $CaminhoLogRedirDumpInd -RedirectStandardError $CaminhoLogErrDumpInd -Wait -NoNewWindow -PassThru
             Start-Sleep -Seconds 8
 
             if (Test-Path $CaminhoSql) {
@@ -208,7 +215,10 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
                 Start-Sleep -Seconds 1
                 $TempoInicio = Get-Date
 
-                $ProcessoRarInd = Start-Process -FilePath $Config.WinRarPath -ArgumentList $ArgsRarInd -RedirectStandardOutput "C:\hostinger_remoto\easyphp_hosts\wasabi_ms_backup\logs\out.txt" -RedirectStandardError "C:\hostinger_remoto\easyphp_hosts\wasabi_ms_backup\logs\err.txt" -Wait -NoNewWindow -PassThru
+                $CaminhoLogRedirInd = Join-Path $PastaLogs "\Logs_Process_Compactacao_BDs_ind.txt"
+                $CaminhoLogErrInd = Join-Path $PastaLogs "\Logs_Errors_Process_Compactacao_BDs_ind.txt"
+
+                $ProcessoRarInd = Start-Process -FilePath $Config.WinRarPath -ArgumentList $ArgsRarInd -RedirectStandardOutput $CaminhoLogRedirInd -RedirectStandardError $CaminhoLogErrInd -Wait -NoNewWindow -PassThru
                
                 #$ArgsRarInd = "a -m5 -ep -y -idq `"-hp$SenhaRarTexto`" `"$CaminhoRarInd`" `"$CaminhoSql`""
                 #$ProcessoRarInd = Start-Process -FilePath $Config.WinRarPath -ArgumentList $ArgsRarInd -NoNewWindow -PassThru
