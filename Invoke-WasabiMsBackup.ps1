@@ -412,22 +412,35 @@ if ($Config.IncluiBackupFirebird -eq $true) {
         
         $StringConexao = "$($FbHost)/$($FbPort):$($CaminhoFDB)"
         $LogErroGbak = Join-Path $PastaFbTemp "gbak_$($NomeArquivoBase)_$DataHoraMili-err.log"
-        $ArgCompactar = @("a", "-ep1", "-hp$SenhaRarTexto", $CaminhoDestinoRar, $CaminhoOrigemSql)
+        $ArgumentosGbak = @(
+            "-b", 
+            "-g",
+            "-v",
+            "-user", "SYSDBA", 
+            "-password", "masterkey", 
+            "-se", "$($FbHost)/$($FbPort):service_mgr",
+            $CaminhoFDB, 
+            $CaminhoFbk,
+            "-y", $LogErroGbak
+        )
+        $ProcGbak = Start-Process -FilePath $GbakExe -ArgumentList $ArgumentosGbak -NoNewWindow -Wait -PassThru
+        Wait-ProcessWithSpinner -Process $ProcGbak -Mensagem "Realizando Backup (Dump .FBK) seguro do Banco de dados Firebird... AGUARDE..."
+        #$ArgCompactar = @("a", "-ep1", "-hp$SenhaRarTexto", $CaminhoDestinoRar, $CaminhoOrigemSql)
 
-        Start-Sleep -Seconds 1
+        Start-Sleep -Seconds 2
 
         if ($ProcGbak.ExitCode -eq 0 -and (Test-Path $CaminhoFbk)) {
             Write-Host "[OK] Arquivo dump .fbk criado com sucesso!" -ForegroundColor Green
             Start-Sleep -Seconds 1
             Write-Host "[OK] Compactando arquivo .fbk gerado...AGUARDE..." -ForegroundColor Green
             
-            $ArgsRarFb = @("a", "-m5", "-ep", "-y", "-idq", "-hp$SenhaRarTexto", "`"$CaminhoRarFbInd`"", "`"$CaminhoFbk`"")
-            $ProcRarFb = Start-Process -FilePath $Config.WinRarPath -ArgumentList $ArgsRarFb -NoNewWindow -PassThru
+            $ArgsRarFb = @("a", "-m5", "-ep", "-y", "-idq", "`"$CaminhoRarFbInd`"", "`"$CaminhoFbk`"")
+            $ProcRarFb = Start-Process -FilePath $Config.WinRarPath -ArgumentList $ArgsRarFb -NoNewWindow -Wait -PassThru
 
             Wait-ProcessWithSpinner -Process $ProcRarFb -Mensagem "Realizando compactação do .FBK Firebird unitário... AGUARDE..."
             
             if ($ProcRarFb.ExitCode -eq 0) {
-                Write-Host "[OK] .FBK compactado e blindado com sucesso." -ForegroundColor Green
+                Write-Host "[OK] .FBK compactado com sucesso." -ForegroundColor Green
                 Start-Sleep -Seconds 1
                 $BancosFbComSucesso++
                 Remove-Item -Path $CaminhoFbk -Force
@@ -438,6 +451,7 @@ if ($Config.IncluiBackupFirebird -eq $true) {
         } else {
             Write-Host "[ERRO] Falha crítica ao gerar o .fbk. Verifique se a porta $FbPort está correta e o serviço está acessível. Se usa servidor remoto dedicado para o Firebird, verifique se possui algum firewall bloqueando o acesso." -ForegroundColor Red
             Start-Sleep -Seconds 1
+            exit 1
         }
     }
 
