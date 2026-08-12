@@ -423,7 +423,7 @@ if ($Config.IncluiBackupFirebird -eq $true) {
             $CaminhoFbk,
             "-y", $LogErroGbak
         )
-        $ProcGbak = Start-Process -FilePath $GbakExe -ArgumentList $ArgumentosGbak -NoNewWindow -Wait -PassThru
+        $ProcGbak = Start-Process -FilePath $GbakExe -ArgumentList $ArgumentosGbak -NoNewWindow -PassThru
         Wait-ProcessWithSpinner -Process $ProcGbak -Mensagem "Realizando Backup (Dump .FBK) seguro do Banco de dados Firebird... AGUARDE..."
         #$ArgCompactar = @("a", "-ep1", "-hp$SenhaRarTexto", $CaminhoDestinoRar, $CaminhoOrigemSql)
 
