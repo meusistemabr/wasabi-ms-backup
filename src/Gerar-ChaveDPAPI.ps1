@@ -1,20 +1,21 @@
+ï»¿[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 Write-Host "=== EMBRULHAR CHAVES (DPAPI) ===" -ForegroundColor Cyan
-Write-Host "A chave gerada será associada ao Hardware/Usuário deste servidor.`n" -ForegroundColor Yellow
+Write-Host "A chave gerada serÃ¡ associada ao Hardware/UsuÃ¡rio deste servidor.`n" -ForegroundColor Yellow
 
-$SecretKey = Read-Host "COLE A KEY AQUI (TEXTO PLANO, SEM ESPAÇOS)" -AsSecureString
+$SecretKey = Read-Host "COLE A KEY AQUI (TEXTO PLANO, SEM ESPAÃ‡OS)" -AsSecureString
 $EncryptedString = ConvertFrom-SecureString -SecureString $SecretKey
 
 Write-Host "`n[OK] Sucesso! A string foi gerada. Atente-se ao copiar corretamente:`n" -ForegroundColor Green
 Write-Host $EncryptedString -ForegroundColor Magenta
 Write-Host "`n======================================================================" -ForegroundColor Cyan
 
-$resposta = Read-Host "`nDeseja copiar o código para a área de transferência? (S/N)"
+$resposta = Read-Host "`nDeseja copiar o cÃ³digo para a Ã¡rea de transferÃªncia? (S/N)"
 
 if ($resposta -match '^[sS]') {
     Set-Clipboard -Value $EncryptedString
-    Write-Host "`n[+] Código copiado para a área de transferência com sucesso!" -ForegroundColor Green
+    Write-Host "`n[+] CÃ³digo copiado para a Ã¡rea de transferÃªncia com sucesso!" -ForegroundColor Green
 } else {
-    Write-Host "`n[-] O código não foi copiado." -ForegroundColor DarkGray
+    Write-Host "`n[-] O cÃ³digo nÃ£o foi copiado." -ForegroundColor DarkGray
 }
 
 Write-Host "`n======================================================================" -ForegroundColor Cyan
