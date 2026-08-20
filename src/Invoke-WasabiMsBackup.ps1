@@ -2,6 +2,7 @@ $ErrorActionPreference = "Stop"
 $ProgressPreference = 'SilentlyContinue'
 $DbPath = Join-Path (Get-Location).Path "dataBackup.db"
 $ConfigPathAA = Join-Path (Get-Location).Path "config.json"
+$PastaLogs = Join-Path (Get-Location).Path "logs"
 
 
 if (-not (Get-Module -ListAvailable -Name AWS.Tools.S3)) {
@@ -146,8 +147,6 @@ if (-not (Test-Path $Config.CaminhoDestinoTemp)) {
     New-Item -ItemType Directory -Path $Config.CaminhoDestinoTemp -Force | Out-Null
 }
 
-$PastaLogs = Join-Path $PSScriptRoot "logs"
-
 if (-not (Test-Path $PastaLogs)) { 
     New-Item -ItemType Directory -Path $PastaLogs -Force | Out-Null 
 }
@@ -220,8 +219,8 @@ if ([string]::IsNullOrWhiteSpace($SenhaRarTexto)) {
     $SenhaFallbackAtivada = $true
     Write-Host "[AVISO] Utilizando SENHA PADRAO DE FALLBACK para o WinRAR." -ForegroundColor DarkYellow
 
-    $CaminhoArquivo = Join-Path $PSScriptRoot "senha_winrar_gerada_automaticamente.txt"
-    $SenhaRarTexto | Out-File -FilePath $CaminhoArquivo -Encoding utf8
+    $CaminhoArquivoSS_FBB_AQ = Join-Path (Get-Location).Path "senha_winrar_gerada_automaticamente.txt"
+    $SenhaRarTexto | Out-File -FilePath $CaminhoArquivoSS_FBB_AQ -Encoding utf8
 }
 
 
@@ -233,7 +232,7 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
     Start-Sleep -Seconds 1
     if (-not (Test-Path $MysqlExe) -or -not (Test-Path $MysqldumpExe)) {
         Write-Host "[ERROR] Executaveis do MySQL/MariaDB nao encontrados no caminho: $($DbConfig.BinPath)" -ForegroundColor Red
-        Write-Host "[ERROR] Voce precisa ter os binarios e o servidor de MySQL/MariaDB rodando neste dispositivo`n`nNao e possivel continuar... o programa será encerrado." -ForegroundColor Red
+        Write-Host "[ERROR] Voce precisa ter os binarios e o servidor de MySQL/MariaDB rodando neste dispositivo`n`nNao e possivel continuar... o programa sera encerrado." -ForegroundColor Red
         Read-Host "`n`nPressione ENTER para fechar a janela..."
         exit 1
     }
@@ -242,7 +241,9 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
         $BSTRDb = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecureDbPass)
         $SenhaDbTexto = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTRDb)
     } catch {
-        throw "Falha ao descriptografar a senha do Banco de Dados."
+        Write-Host "[ERROR] Erro ao tentar desencriptar a senha do Banco de Dados MySQL/MariaDB." -ForegroundColor Red
+        Write-Host "[ERROR] Verifique se informou a senha correta no momento de gerar o embrulhamento.`n`nNao e possivel continuar... o programa sera encerrado." -ForegroundColor Red
+        Read-Host "`n`nPressione ENTER para fechar a janela..."
         exit 1
     }
     $env:MYSQL_PWD = $SenhaDbTexto
@@ -264,39 +265,52 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
     Start-Sleep -Seconds 1
     
     $ArgumentosBase = @("-h", $DbConfig.Host, "-P", $DbConfig.Port, "-u", $DbConfig.User, "-s", "-N", "-e", "SHOW DATABASES;")
+
+    try {
     
-    if ($SuportaSslMode) {
-        Write-Host "[*] Cliente MySQL nativo detectado..." -ForegroundColor DarkCyan
-        $ArgumentosFinais = $ArgumentosBase + "--ssl-mode=DISABLED"
-        $ListaBancos = $(& $MysqlExe $ArgumentosFinais 2>&1) | Where-Object { 
-            $_ -notmatch "Warning" -and -not ([string]::IsNullOrWhiteSpace($_))
+        if ($SuportaSslMode) {
+            Write-Host "[*] Cliente MySQL nativo detectado..." -ForegroundColor DarkCyan
+            $ArgumentosFinais = $ArgumentosBase + "--ssl-mode=DISABLED"
+            $ListaBancos = $(& $MysqlExe $ArgumentosFinais 2>&1) | Where-Object { 
+                $_ -notmatch "Warning" -and -not ([string]::IsNullOrWhiteSpace($_))
+            }
+            
+        } else {
+            Write-Host "[*] Cliente MariaDB ou legado detectado..." -ForegroundColor DarkCyan
+            $ArgumentosMariaDB = $ArgumentosBase + "--skip-ssl"
+            $ListaBancos = $(& $MysqlExe $ArgumentosMariaDB 2>&1) | Where-Object { 
+                $_ -notmatch "Warning" -and -not ([string]::IsNullOrWhiteSpace($_))
+            }
         }
-        
-    } else {
-        Write-Host "[*] Cliente MariaDB ou legado detectado..." -ForegroundColor DarkCyan
-        $ArgumentosMariaDB = $ArgumentosBase + "--skip-ssl"
-        $ListaBancos = $(& $MysqlExe $ArgumentosMariaDB 2>&1) | Where-Object { 
-            $_ -notmatch "Warning" -and -not ([string]::IsNullOrWhiteSpace($_))
+
+        if ($LASTEXITCODE -ne 0) {
+            $env:MYSQL_PWD = $null
+            Write-Host "[ERROR] Erro silencioso ou no buffer do servidor, tente novamente depois. Detalhes: $_" -ForegroundColor Red
+            Write-Host "Nao e possivel continuar... o programa sera encerrado." -ForegroundColor Red
+            Read-Host "`n`nPressione ENTER para fechar a janela..."
+            exit 1
         }
-    }
 
-    Start-Sleep -Seconds 1
-
-    if ($LASTEXITCODE -ne 0) {
+    } catch {
         $env:MYSQL_PWD = $null
-        Write-Host "[ERROR] Erro Critico: Falha ao conectar no BD. Verifique se esta online e se as credenciais tem permissao. Detalhes: $ListaBancos" -ForegroundColor Red
-
+        Write-Host "[ERROR] O servidor de Banco de Dados MySQL/MariaDB nao respondeu." -ForegroundColor Red
+        Write-Host "[ERROR] Verifique se informou o endereco do servidor corretamente, verifique se o servidor esta online, verifique a senha correta no momento de gerar o embrulhamento e nome de usuario existente.`n`nDetalhes do erro: $_`n`nNao e possivel continuar... o programa sera encerrado." -ForegroundColor Red
+        Read-Host "`n`nPressione ENTER para fechar a janela..."
         exit 1
     }
+
+    Start-Sleep -Seconds 2
 
     $BancosSistema = @("information_schema", "mysql", "performance_schema", "sys")
     $BancosParaBackup = $ListaBancos -split "`n" | Where-Object { $_.Trim() -notin $BancosSistema -and $_.Trim() -ne "" }
     Start-Sleep -Seconds 1
 
     if ($BancosParaBackup.Count -eq 0) {
-        Write-Host "[PASS] Nenhum banco de dados encontrado para backup. O script vai continuar a execucao, porem sem nenhum banco de dados MARIADB/MYSQL permitido para backup. AGUARDE..." -ForegroundColor Yellow
+        Write-Host "[PASS] Nenhum banco de dados encontrado para backup. O script vai continuar a execucao, porem sem nenhum banco de dados MARIADB/MYSQL encontrado para backup. AGUARDE..." -ForegroundColor Yellow
+        Start-Sleep -Seconds 3
+
     } else {
-        Write-Host "[OK] Encontrados $($BancosParaBackup.Count) bancos de dados para backup. Estamos coletando informações de metadados, AGUARDE..." -ForegroundColor Green
+        Write-Host "[OK] Encontramos $($BancosParaBackup.Count) bancos de dados para backup. Estamos coletando informacoes de metadados, AGUARDE..." -ForegroundColor Green
         $PastaBancosTemp = Join-Path $Config.CaminhoDestinoTemp "BancosDB_$DataHoraMili"
         New-Item -ItemType Directory -Path $PastaBancosTemp -Force | Out-Null
         Start-Sleep -Seconds 3
