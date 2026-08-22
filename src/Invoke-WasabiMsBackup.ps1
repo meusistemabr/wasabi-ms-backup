@@ -1,18 +1,98 @@
+$IdentidadeUsuario = [Security.Principal.WindowsIdentity]::GetCurrent()
+$PrincipalUsuario  = [Security.Principal.WindowsPrincipal]$IdentidadeUsuario
+$IsAdmin           = $PrincipalUsuario.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+if (-not $IsAdmin) {
+    $CaminhoDoExe = [System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
+    Start-Process -FilePath $CaminhoDoExe -Verb RunAs
+    Exit 0
+}
+
 $ErrorActionPreference = "Stop"
 $ProgressPreference = 'SilentlyContinue'
-$DbPath = Join-Path (Get-Location).Path "dataBackup.db"
-$ConfigPathAA = Join-Path (Get-Location).Path "config.json"
-$PastaLogs = Join-Path (Get-Location).Path "logs"
+$DiretorioDoExe = [System.IO.Path]::GetDirectoryName([System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName)
+$DbPath = Join-Path $DiretorioDoExe "dataBackup.db"
+$ConfigPathAA = Join-Path $DiretorioDoExe "config.json"
+$PastaLogs = Join-Path $DiretorioDoExe "logs"
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+
+Clear-Host
+
+$AnoAtual = (Get-Date).Year
+
+$Header = @"
+ ______________________________________________________________________
+|                                                                      |
+|                                                                      |
+|   ██╗    ██╗ █████╗ ███████╗ █████╗ ██████╗ ██╗                      |
+|   ██║    ██║██╔══██╗██╔════╝██╔══██╗██╔══██╗██║                      |
+|   ██║ █╗ ██║███████║███████╗███████║██████╔╝██║                      |
+|   ██║███╗██║██╔══██║╚════██║██╔══██║██╔══██╗╚═╝                      |
+|   ╚███╔███╔╝██║  ██║███████║██║  ██║██████╔╝██╗                      |
+|    ╚══╝╚══╝ ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═════╝ ╚═╝                      |
+|                                                                      |
+|  SISTEMA AUTOMÁTICO DE BACKUP EM NUVEM (WASABI MS)                   |
+|______________________________________________________________________|
+|                                                                      |
+|  Desenvolvido por: Meu Sistema - Software Personalizados             |
+|  Contato/Suporte : contato@meusistema.com.br                         |
+|  Site            : https://www.meusistema.com.br                     |
+|  Telefone        : +55 (84) 98137-6412                               |
+|  Versão Atual    : v1.5.9 (Compilado .EXE)                           |
+|  Ano de Lançam.  : 2026 - $AnoAtual                                  |
+|______________________________________________________________________|
+|                                                                      |
+|  *** AVISO DE SEGURANÇA & PROPRIEDADE INTELECTUAL ***                |
+|  Este software é privado. Proibida a reprodução, engenharia reversa  |
+|  ou redistribuição parcial/total sem autorização prévia por escrito. |
+|______________________________________________________________________|
+"@
+
+Write-Host $Header -ForegroundColor Cyan
+Write-Host "`n`n[***INIT***] Iniciando rotinas de verificação... Aguarde.`n" -ForegroundColor Yellow
+
+Start-Sleep -Seconds 6
+
+$ModulosObrigatorios = @("AWS.Tools.S3", "PSSQlite")
 
 
 if (-not (Get-Module -ListAvailable -Name AWS.Tools.S3)) {
-    Write-Host "[ERROR] Modulo --AWS.Tools.S3-- nao encontrado. Instale com: Install-Module -Name AWS.Tools.S3 -Force" -ForegroundColor Red
-    Start-Sleep -Seconds 3
-    Write-Host "[ERROR] Ao concluir a instalacao, execute o programa novamente." -ForegroundColor Red
-    Start-Sleep -Seconds 3
-    Write-Host "O programa ser� finalizado." -ForegroundColor Red
+    
+    
+    
+    Write-Host "O programa será finalizado." -ForegroundColor Red
     Start-Sleep -Seconds 1
     Read-Host "`n`nPressione ENTER para fechar a janela..."
+    exit 1
+}
+
+
+foreach ($Modulo in $ModulosObrigatorios) {
+    if (-not (Get-Module -ListAvailable -Name $Modulo)) {
+        Write-Host "[ERROR] Modulo --${Modulo}-- nao encontrado. Estamos tentando instalar automaticamente este módulo... AGUARDE..." -ForegroundColor Red
+        Start-Sleep -Seconds 3
+        try {
+            Set-PSRepository -Name "PSGallery" -InstallationPolicy Trusted -ErrorAction SilentlyContinue
+            Install-Module -Name $Modulo -Scope AllUsers -Force -AllowClobber -ErrorAction Stop
+
+            Write-Host "[OK] Modulo --${Modulo}-- instalado com sucesso! AGUARDE..." -ForegroundColor Green
+        }
+        catch {
+            $MsgModuloErro = "Falha crítica ao tentar instalar o módulo obrigatório [$Modulo] no sistema.`nDetalhes: $($_.Exception.Message)"
+            if ([System.Diagnostics.EventLog]::SourceExists("MSBackup")) {
+                Write-EventLog -LogName Application -Source "MSBackup" -EntryType Error -EventId 9001 -Message $MsgModuloErro
+            }
+            Exit 1
+        }
+    } else {
+        Start-Sleep -Seconds 3
+        Write-Host "[*] Checando se os modulos obrigatorios estao instalados..." -ForegroundColor DarkCyan
+        Start-Sleep -Seconds 5
+        Write-Host "[OK] Modulos encontrados! Inicializando vetores dos modulos..." -ForegroundColor DarkCyan
+        Start-Sleep -Seconds 5
+        Write-Host "[OK] Modulos inicializado com sucesso." -ForegroundColor DarkCyan
+    }
 }
 
 
@@ -123,7 +203,7 @@ $EhWindows = if ($null -ne $IsWindows) { $IsWindows } else { [Environment]::OSVe
 if (-not $EhWindows) {
     Write-Host "`n`n======================================================================" -ForegroundColor Red
     Write-Host "[ERRO CRITICO] Este script foi projetado EXCLUSIVAMENTE para WINDOWS." -ForegroundColor Red
-    Write-Host "Execu��o abortada para prevenir falhas de diret�rio ou comandos." -ForegroundColor Red
+    Write-Host "Execução abortada para prevenir falhas de diretório ou comandos." -ForegroundColor Red
     Write-Host "======================================================================`n`n" -ForegroundColor Red
     exit 1
 }
@@ -139,6 +219,7 @@ $ConfigFile = $ConfigPathAA
 if (-not (Test-Path $ConfigFile)) {
     Write-Host "[ERRO CRITICO] Arquivo de configuracao nao encontrado: config.json`n`nLembre-se: O arquivo de configuracao devera estar no mesmo diretorio do script. O diretorio tambem precisa de permissoes de leitura e gravacao." -ForegroundColor Red
     Read-Host "`n`nPressione ENTER para fechar a janela..."
+    exit 1
 }
 $Config = Get-Content $ConfigFile -Raw | ConvertFrom-Json
 Start-Sleep -Seconds 1
@@ -179,13 +260,15 @@ try {
     $TabelasEncontradas = Invoke-SqliteQuery -DataSource $DbPath -Query $CheckSchemaQuery
     
     if ($null -eq $TabelasEncontradas -or $TabelasEncontradas.Count -lt 2) {
-        Write-Host "[ERROR] O banco de dados existe, mas n�o est� padronizado. Tabelas 'METADATA_APP' e/ou 'BACKUP_AUDIT' est�o ausentes. O script nao vai continuar...`n`nVoce pode tentar recuperar o Banco de Dados ou apague o atual que podemos criar um novo Banco de Dados." -ForegroundColor Red
+        Write-Host "[ERROR] O banco de dados existe, mas não está padronizado. Tabelas 'METADATA_APP' e/ou 'BACKUP_AUDIT' estão ausentes. O script nao vai continuar...`n`nVoce pode tentar recuperar o Banco de Dados ou apague o atual que podemos criar um novo Banco de Dados." -ForegroundColor Red
         Read-Host "`n`nPressione ENTER para fechar a janela..."
+        exit 1
     }
 }
 catch {
     Write-Host "[ERROR] Falha ao tentar ler o esquema do banco de dados. Detalhes: $_" -ForegroundColor Red
     Read-Host "`n`nPressione ENTER para fechar a janela..."
+    exit 1
 }
 Start-Sleep -Seconds 1
 
@@ -363,7 +446,7 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
                
                 #$ArgsRarInd = "a -m5 -ep -y -idq `"-hp$SenhaRarTexto`" `"$CaminhoRarInd`" `"$CaminhoSql`""
                 #$ProcessoRarInd = Start-Process -FilePath $Config.WinRarPath -ArgumentList $ArgsRarInd -NoNewWindow -PassThru
-                #Wait-ProcessWithSpinner -Process $ProcessoRarInd -Mensagem "Compactação do Banco de Dados (Dump) individual em andamento... AGUARDE..."
+                #Wait-ProcessWithSpinner -Process $ProcessoRarInd -Mensagem "CompactaÃ§Ã£o do Banco de Dados (Dump) individual em andamento... AGUARDE..."
                 Start-Sleep -Seconds 3
                 if ($ProcessoRarInd.ExitCode -eq 0) {
                     $StreamInd = [System.IO.File]::OpenRead($CaminhoRarInd)
@@ -373,7 +456,7 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
                     
                     Write-Host "[OK] ARQUIVO RAR gerado com sucesso! Checksum SHA256: $HashInd" -ForegroundColor Green
                 } else {
-                    Write-Host "[ERRO] Falha ao compactar o banco $Banco. (C�digo do Erro: $($ProcessoRarInd.ExitCode))" -ForegroundColor Red
+                    Write-Host "[ERRO] Falha ao compactar o banco $Banco. (Código do Erro: $($ProcessoRarInd.ExitCode))" -ForegroundColor Red
                     exit 1
                 }
             }
@@ -505,7 +588,7 @@ if ($Config.IncluiBackupMariaDBMysql -eq $true) {
 
 
 if ($Config.IncluiBackupFirebird -eq $true) {
-    Write-Host "`n=== Iniciando procedimentos para backup de DB Firebird... AGUARDE... ===" -ForegroundColor Cyan
+    Write-Host "`n=== Iniciando procedimentos para backup de DB Firebird... AGUARDE... ===" -ForegroundColor DarkCyan
     
     $FbConfig = $Config.DataInfoBKPFirebird
     $GbakExe = Join-Path $FbConfig.BinPath "gbak.exe"
@@ -519,7 +602,7 @@ if ($Config.IncluiBackupFirebird -eq $true) {
     $FbUser = "SYSDBA"
     $FbPass = "masterkey"
 
-    $PastaFbTemp = Join-Path $Config.CaminhoDestinoTemp "Firebird_$DataHoraMili"
+    $PastaFbTemp = Join-Path $Config.CaminhoDestinoTemp "Firebird_${DataHoraMili}"
     New-Item -ItemType Directory -Path $PastaFbTemp -Force | Out-Null
 
     Start-Sleep -Seconds 1
@@ -530,26 +613,26 @@ if ($Config.IncluiBackupFirebird -eq $true) {
 
     foreach ($CaminhoFDB in $FbConfig.CaminhosFDB) {
         if (-not (Test-Path $CaminhoFDB)) {
-            Write-Host "[AVISO] Arquivo FDB nao encontrado: $CaminhoFDB" -ForegroundColor DarkYellow
+            Write-Host "[AVISO] Arquivo FDB nao encontrado: $CaminhoFDB" -ForegroundColor red
             continue
         }
         $NomeArquivoBase = [System.IO.Path]::GetFileNameWithoutExtension($CaminhoFDB)
         
-        $NomeFbk = "$($NomeArquivoBase)_$DataHoraMili.fbk"
+        $NomeFbk = "${NomeArquivoBase}_${DataHoraMili}.fbk"
         $CaminhoFbk = Join-Path $PastaFbTemp $NomeFbk
-        $CaminhoRarFbInd = Join-Path $PastaFbTemp "$($NomeArquivoBase)_$DataHoraMili.rar"
+        $CaminhoRarFbInd = Join-Path $PastaFbTemp "${NomeArquivoBase}_${DataHoraMili}.rar"
 
-        Write-Host "[OK] Iniciando dump seguro (gbak) de: $NomeArquivoBase ...AGUARDE..." -ForegroundColor Cyan
+        Write-Host "[OK] Iniciando dump seguro (gbak) de: ${NomeArquivoBase}.fdb ...AGUARDE..." -ForegroundColor DarkCyan
         Start-Sleep -Seconds 2
         
         $StringConexao = "$($FbHost)/$($FbPort):$($CaminhoFDB)"
-        $LogErroGbak = Join-Path $PastaFbTemp "gbak_$($NomeArquivoBase)_$DataHoraMili-err.log"
+        $LogErroGbak   = Join-Path $PastaLogs "gbak_${NomeArquivoBase}_${DataHoraMili}-err.log"
         $ArgumentosGbak = @(
             "-b", 
             "-g",
             "-v",
-            "-user", "SYSDBA", 
-            "-password", "masterkey", 
+            "-user", $FbUser, 
+            "-password", $FbPass, 
             "-se", "$($FbHost)/$($FbPort):service_mgr",
             $CaminhoFDB, 
             $CaminhoFbk,
@@ -564,16 +647,19 @@ if ($Config.IncluiBackupFirebird -eq $true) {
         if ($ProcGbak.ExitCode -eq 0 -and (Test-Path $CaminhoFbk)) {
             Write-Host "[OK] Arquivo dump .fbk criado com sucesso!" -ForegroundColor Green
             Start-Sleep -Seconds 1
-            Write-Host "[OK] Compactando arquivo .fbk gerado...AGUARDE..." -ForegroundColor Green
+            Write-Host "[OK] Compactando arquivo .fbk gerado...AGUARDE..." -ForegroundColor DarkCyan
             
-            $ArgsRarFb = @("a", "-m5", "-dh", "-ep", "-y", "-idq", "`"$CaminhoRarFbInd`"", "`"$CaminhoFbk`"")
+            #$ArgsRarFb = @("a", "-m5", "-dh", "-ep", "-y", "-idq", "`"$CaminhoRarFbInd`"", "`"$CaminhoFbk`"")
+            $ArgsRarFb = "a -m5 -ep -dh -y -idq -df `"$CaminhoRarFbInd`" `"$CaminhoFbk`""
             $ProcRarFb = Start-Process -FilePath $Config.WinRarPath -ArgumentList $ArgsRarFb -NoNewWindow -Wait -PassThru
+            Write-Host "[OK] Compressao do .fbk em andamento, AGUARDE..." -ForegroundColor DarkCyan
+            Start-Sleep -Seconds 2
 
             Wait-ProcessWithSpinner -Process $ProcRarFb -Mensagem "Realizando compactacao do .FBK Firebird unitario... AGUARDE..."
             
             if ($ProcRarFb.ExitCode -eq 0) {
                 Write-Host "[OK] .FBK compactado com sucesso." -ForegroundColor Green
-                Start-Sleep -Seconds 1
+                Start-Sleep -Seconds 2
                 $BancosFbComSucesso++
                 Remove-Item -Path $CaminhoFbk -Force
             } else {
@@ -589,24 +675,31 @@ if ($Config.IncluiBackupFirebird -eq $true) {
 
     if ($BancosFbComSucesso -gt 0) {
         Write-Host "[OK] Compactacao individual dos FBKs Firebird concluida com SUCESSO! AGUARDE..." -ForegroundColor Green
-        Start-Sleep -Seconds 1
+        Start-Sleep -Seconds 2
         $NomeMasterFB = "MasterBackupFirebird_$($Config.Cliente)_$DataHoraMili.rar"
         $CaminhoMasterFB = Join-Path $Config.CaminhoDestinoTemp $NomeMasterFB
         
-        Write-Host "`n[OK] Unindo $BancosFbComSucesso banco(s) Firebird no arquivo: $NomeMasterFB" -ForegroundColor Yellow
+        Write-Host "`n[OK] Unindo $BancosFbComSucesso banco(s) Firebird no arquivo: $NomeMasterFB" -ForegroundColor DarkCyan
 
-        $ArgsMasterFB = @("a", "-m5", "-dh", "-ep", "-y", "-idq", "-hp$SenhaRarTexto", "`"$CaminhoMasterFB`"", "$PastaFbTemp\*.rar")
-        $ProcMasterFB = Start-Process -FilePath $Config.WinRarPath -ArgumentList $ArgsMasterFB -NoNewWindow -PassThru
-        Wait-ProcessWithSpinner -Process $ProcMasterFB -Mensagem "Compactacao do arquivo unico com todos os DBs... AGUARDE..."
+        #$ArgsMasterFB = @("a", "-m5", "-dh", "-ep", "-y", "-idq", "-hp$SenhaRarTexto", "`"$CaminhoMasterFB`"", "$PastaFbTemp\*.rar")
+        $ArgsRarMasterTTallFb = "a -m5 -ep -dh -y -idq -df `"$CaminhoMasterFB`" `"$PastaFbTemp\*.rar`""
+        $ProcMasterFB = Start-Process -FilePath $Config.WinRarPath -ArgumentList $ArgsRarMasterTTallFb -NoNewWindow -PassThru
+        Wait-ProcessWithSpinner -Process $ProcMasterFB -Mensagem "Compactacao do arquivo unico com todos os  Firebird em andamento... AGUARDE..."
 
         Start-Sleep -Seconds 1
         if ($ProcMasterFB.ExitCode -eq 0) {
             Write-Host "[OK] Pacote Master Firebird gerado com SUCESSO! AGUARDE..." -ForegroundColor Green
             Remove-Item -Path $PastaFbTemp -Recurse -Force
-            
-            Start-Sleep -Seconds 2
 
-            Write-Host "`n[*] Preparacao para envio ao servidor de Backup..." -ForegroundColor Cyan
+            Write-Host "[OK] Realizando limpeza apos o backup do Firebird, AGUARDE..." -ForegroundColor DarkCyan
+            
+            Start-Sleep -Seconds 3
+
+            Write-Host "[OK] Limpeza realizada com sucesso! PREPARANDO PRÓXIMO PROCESSO..." -ForegroundColor DarkCyan
+
+            Start-Sleep -Seconds 4
+
+            Write-Host "[*] Iniciando preparacao para envio ao servidor de Backup remoto da M.S...." -ForegroundColor DarkCyan
             
             $StreamFB = [System.IO.File]::OpenRead($CaminhoMasterFB)
             $SHA256FB = [System.Security.Cryptography.SHA256]::Create()
@@ -628,10 +721,10 @@ if ($Config.IncluiBackupFirebird -eq $true) {
                 $SecretKeyWasabi = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTRWasabi)
                 Start-Sleep -Seconds 2
                 
-                Write-Host "[*] Preparacao concluida com sucesso. Iniciando envio..." -ForegroundColor Yellow
+                Write-Host "[*] Preparacao concluida com sucesso. Iniciando envio..." -ForegroundColor DarkCyan
                 $TempoIniUploadFB = Get-Date
 
-                Write-Host "[*] Transferencia em andamento... AGUARDE..." -ForegroundColor Yellow
+                Write-Host "[*] Transferencia em andamento... AGUARDE..." -ForegroundColor DarkCyan
 
                 Write-S3Object -BucketName $Config.WasabiBucket `
                                -Key $NomeMasterFB `
@@ -647,15 +740,24 @@ if ($Config.IncluiBackupFirebird -eq $true) {
                                -ErrorAction Stop
 
                 $TempoFimUploadFB = Get-Date
-                Write-Host "[OK] Upload do arquivo concluido em $(($TempoFimUploadFB - $TempoIniUploadFB).TotalSeconds) segundos!" -ForegroundColor Green
+                Write-Host "[OK] Upload do arquivo concluido em $(($TempoFimUploadFB - $TempoIniUploadFB).TotalSeconds) segundos!" -ForegroundColor DarkCyan
             } catch {
                 throw "Erro ao fazer upload do Firebird."
+                exit 1
             } finally {
-                if ($BSTRWasabi) { [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTRWasabi); $SecretKeyWasabi = $null }
+                Write-Host "[OK] Realizando limpeza e organizacao apos o envio para o servidor remoto..." -ForegroundColor DarkCyan
+                Start-Sleep -Seconds 5
+                if ($BSTRWasabi) { 
+                    [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTRWasabi); $SecretKeyWasabi = $null 
+                }   
             }
             Start-Sleep -Seconds 2
 
-            Write-Host "[OK] Registrando auditoria no banco de dados..." -ForegroundColor Yellow
+            Write-Host "[OK] Tudo certo com a limpeza. AGUARDE..." -ForegroundColor DarkCyan
+
+            Start-Sleep -Seconds 3
+
+            Write-Host "[OK] Registrando auditoria no banco de dados local..." -ForegroundColor Yellow
             $AppUuid = "{AB36F605-6A60-4BBE-84A6-F66F2E0F4FFD}"
             
             $IpLocal = (Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias 'Ethernet', 'Wi-Fi' -ErrorAction SilentlyContinue).IPAddress | Select-Object -First 1
@@ -865,7 +967,7 @@ Start-Sleep -Seconds 1
 if (Test-Path $CaminhoCompletoRar) {
     Remove-Item -Path $CaminhoCompletoRar -Force
     Write-Host "Limpeza: Arquivo local '$NomeArquivoRar' removido com sucesso...`n" -ForegroundColor DarkCyan
-    Write-Host "Limpeza: Artefatos na memória e chaves removidos com sucesso...`n" -ForegroundColor DarkCyan
+    Write-Host "Limpeza: Artefatos na memÃ³ria e chaves removidos com sucesso...`n" -ForegroundColor DarkCyan
     Start-Sleep -Seconds 1
     Write-Host "Limpeza: Realizando checagem de dados finais...`n" -ForegroundColor DarkCyan
     Start-Sleep -Seconds 2
