@@ -8,3 +8,7 @@ config.json
 *.txt
 TempBackup/
 logs/
+src/keys/
+src/keys/*
+*.dat
+*.ps1
