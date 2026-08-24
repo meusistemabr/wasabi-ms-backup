@@ -12,3 +12,4 @@ src/keys/
 src/keys/*
 *.dat
 *.ps1
+*.sqbpro
