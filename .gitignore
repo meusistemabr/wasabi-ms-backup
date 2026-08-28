@@ -13,3 +13,4 @@ src/keys/*
 *.dat
 *.ps1
 *.sqbpro
+.DS_Store
